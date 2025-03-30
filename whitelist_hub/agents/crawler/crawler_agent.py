@@ -17,6 +17,7 @@ from .data_extractors import (
     ProjectDetailsExtractor
 )
 from ...utils.blockchain_client import BlockchainClient
+from ...utils.firecrawl_client import FirecrawlClient
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class CrawlerAgent(BaseAgent):
         github_crawler=None,
         defillama_crawler=None,
         social_media_crawler=None,
+        firecrawl_client=None,
         contract_extractor=None,
         whitelist_extractor=None,
         project_details_extractor=None,
@@ -45,6 +47,7 @@ class CrawlerAgent(BaseAgent):
             github_crawler: Component for crawling GitHub repositories
             defillama_crawler: Component for fetching DeFiLlama data
             social_media_crawler: Component for crawling social media
+            firecrawl_client: Client for Firecrawl.dev API
             contract_extractor: Component for extracting contract info
             whitelist_extractor: Component for extracting whitelist info
             project_details_extractor: Component for extracting project details
@@ -57,6 +60,7 @@ class CrawlerAgent(BaseAgent):
         self.github_crawler = github_crawler or GithubCrawler()
         self.defillama_crawler = defillama_crawler or DefiLlamaCrawler()
         self.social_media_crawler = social_media_crawler or SocialMediaCrawler()
+        self.firecrawl_client = firecrawl_client or FirecrawlClient()
         self.contract_extractor = contract_extractor or ContractExtractor(self.blockchain_client)
         self.whitelist_extractor = whitelist_extractor or WhitelistExtractor()
         self.project_details_extractor = project_details_extractor or ProjectDetailsExtractor()
@@ -214,7 +218,12 @@ class CrawlerAgent(BaseAgent):
         elif action_type == "crawl_website":
             # Crawl project website
             website_url = params.get("website") or self.context.get("website")
-            result = await self.website_crawler.crawl(website_url)
+            # Check if we should use Firecrawl or standard crawler
+            use_firecrawl = params.get("use_firecrawl", True)
+            if use_firecrawl:
+                result = await self._crawl_with_firecrawl(website_url)
+            else:
+                result = await self.website_crawler.crawl(website_url)
             return {"website_data": result}
             
         elif action_type == "crawl_github":
@@ -250,6 +259,14 @@ class CrawlerAgent(BaseAgent):
             blockchain = params.get("blockchain", "ethereum")
             result = await self.contract_extractor.verify_contract(address, blockchain)
             return {"verification_result": result}
+            
+        elif action_type == "deep_research":
+            # Conduct deep research using Firecrawl
+            query = params.get("query", "") or f"{self.context.get('project_name')} blockchain whitelist"
+            max_urls = params.get("max_urls", 10)
+            max_depth = params.get("max_depth", 3)
+            result = await self.firecrawl_client.deep_research(query, max_urls, max_depth)
+            return {"research_result": result}
             
         elif action_type == "aggregate_results":
             # Aggregate results from multiple sources
@@ -337,3 +354,91 @@ class CrawlerAgent(BaseAgent):
             "project_details": project_details,
             "sources_used": list(sources.keys())
         }
+        
+    async def _crawl_with_firecrawl(self, website_url: str) -> Dict[str, Any]:
+        """Crawl website using Firecrawl.dev API.
+        
+        Args:
+            website_url: Website URL to crawl
+            
+        Returns:
+            Crawling results
+        """
+        try:
+            # First, map the site to find all relevant URLs
+            site_map_result = await self.firecrawl_client.map_urls(
+                url=website_url,
+                include_subdomains=True,
+                limit=100
+            )
+            
+            # Extract docs, whitepapers, and other relevant URLs
+            urls = site_map_result.get("urls", [])
+            docs_urls = []
+            whitepaper_urls = []
+            about_urls = []
+            contract_urls = []
+            
+            for url in urls:
+                lower_url = url.lower()
+                if any(term in lower_url for term in ["doc", "docs", "documentation", "gitbook", "guide"]):
+                    docs_urls.append(url)
+                elif any(term in lower_url for term in ["whitepaper", "paper", "litepaper"]):
+                    whitepaper_urls.append(url)
+                elif any(term in lower_url for term in ["about", "team"]):
+                    about_urls.append(url)
+                elif any(term in lower_url for term in ["contract", "token", "address", "whitelist", "audit"]):
+                    contract_urls.append(url)
+            
+            # Scrape main page
+            main_page_result = await self.firecrawl_client.scrape_url(
+                url=website_url,
+                formats=["markdown", "links"],
+                only_main_content=True
+            )
+            
+            # Scrape important pages
+            important_urls = []
+            important_urls.extend(docs_urls[:3])  # Top 3 docs URLs
+            important_urls.extend(whitepaper_urls[:1])  # Top whitepaper URL
+            important_urls.extend(contract_urls[:3])  # Top 3 contract URLs
+            
+            scraped_pages = {}
+            for url in important_urls:
+                try:
+                    page_result = await self.firecrawl_client.scrape_url(
+                        url=url,
+                        formats=["markdown"],
+                        only_main_content=True
+                    )
+                    if page_result.get("markdown"):
+                        scraped_pages[url] = page_result
+                except Exception as e:
+                    logger.warning(f"Error scraping {url}: {str(e)}")
+            
+            # Extract contract addresses from scraped content
+            combined_content = main_page_result.get("markdown", "")
+            for page_data in scraped_pages.values():
+                combined_content += "\n" + page_data.get("markdown", "")
+                
+            contract_addresses = self.contract_extractor.extract_addresses(combined_content)
+            
+            # Create result
+            return {
+                "success": True,
+                "main_content": main_page_result.get("markdown", ""),
+                "pages": scraped_pages,
+                "site_structure": {
+                    "total_urls": len(urls),
+                    "docs_urls": docs_urls,
+                    "whitepaper_urls": whitepaper_urls,
+                    "contract_urls": contract_urls,
+                    "about_urls": about_urls
+                },
+                "contract_addresses": contract_addresses,
+                "documentation_links": docs_urls + whitepaper_urls
+            }
+        except Exception as e:
+            logger.error(f"Error using Firecrawl to crawl {website_url}: {str(e)}")
+            # Fallback to standard crawler if Firecrawl fails
+            return await self.website_crawler.crawl(website_url)

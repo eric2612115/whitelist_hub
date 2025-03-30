@@ -32,7 +32,13 @@ class Settings(BaseSettings):
     # AI model settings
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
-    AI_MODEL_PROVIDER: str = "openai"  # or "anthropic", "local"
+    GEMINI_API_KEY: Optional[str] = None
+    CUSTOM_AI_KEY: Optional[str] = None
+    CUSTOM_AI_ENDPOINT: Optional[str] = None
+    AI_MODEL_PROVIDER: str = "openai"  # or "anthropic", "gemini", "custom"
+    
+    # External service API keys and endpoints
+    FIRECRAWL_API_KEY: Optional[str] = None
     
     # CORS settings
     BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []

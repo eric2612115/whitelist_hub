@@ -8,6 +8,7 @@ from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain.schema import BaseMemory
 
 from ..core.config import settings
@@ -29,7 +30,7 @@ class LangChainClient:
         """Initialize LangChain client.
         
         Args:
-            provider: AI model provider (openai, anthropic)
+            provider: AI model provider (openai, anthropic, google)
             api_key: API key for the provider
             max_retries: Maximum number of retries for API calls
             temperature: Temperature for LLM generation
@@ -44,6 +45,9 @@ class LangChainClient:
         
         # Initialize LLM
         self.llm = self._initialize_llm()
+        
+        # Initialize embeddings model (if needed)
+        self.embeddings = self._initialize_embeddings()
     
     def _get_api_key(self) -> str:
         """Get API key for the selected provider.
@@ -59,10 +63,14 @@ class LangChainClient:
             if not settings.ANTHROPIC_API_KEY:
                 raise ValueError("Anthropic API key not found in settings")
             return settings.ANTHROPIC_API_KEY
+        elif self.provider == "google":
+            if not settings.GOOGLE_API_KEY:
+                raise ValueError("Google API key not found in settings")
+            return settings.GOOGLE_API_KEY
         else:
             raise ValueError(f"Unsupported AI provider: {self.provider}")
     
-    def _initialize_llm(self) -> Union[ChatOpenAI, ChatAnthropic]:
+    def _initialize_llm(self) -> Union[ChatOpenAI, ChatAnthropic, ChatGoogleGenerativeAI]:
         """Initialize LLM based on provider.
         
         Returns:
@@ -82,8 +90,29 @@ class LangChainClient:
                 max_retries=self.max_retries,
                 model_name="claude-3-opus-20240229"
             )
+        elif self.provider == "google":
+            return ChatGoogleGenerativeAI(
+                google_api_key=self.api_key,
+                temperature=self.temperature,
+                model="gemini-pro",
+                convert_system_message_to_human=True  # Needed for Gemini models
+            )
         else:
             raise ValueError(f"Unsupported AI provider: {self.provider}")
+    
+    def _initialize_embeddings(self):
+        """Initialize embeddings model based on provider.
+        
+        Returns:
+            Embeddings model instance
+        """
+        if self.provider == "google":
+            return GoogleGenerativeAIEmbeddings(
+                google_api_key=self.api_key,
+                model="models/embedding-001"
+            )
+        # Add other embedding models as needed
+        return None
     
     def create_chain_for_task(
         self,
@@ -166,3 +195,18 @@ class LangChainClient:
         result = await chain.arun(**context)
         
         return result
+    
+    async def generate_embeddings(self, text: str) -> List[float]:
+        """Generate embeddings for a text string.
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Vector embedding
+        """
+        if not self.embeddings:
+            raise ValueError("Embeddings model not initialized")
+        
+        # Use asyncio to run the embeddings in a non-blocking way
+        return await asyncio.to_thread(self.embeddings.embed_query, text)

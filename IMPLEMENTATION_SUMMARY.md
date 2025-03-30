@@ -1,98 +1,160 @@
-# Whitelist Hub Implementation Summary
+# Whitelist Hub - Implementación Mejorada
 
-## Implemented Components
+Este documento proporciona un resumen de las mejoras implementadas en el proyecto Whitelist Hub para mejorar sus capacidades de análisis de contratos inteligentes y mecanismos de whitelist.
 
-### 1. Core Framework
-- Base agent implementation with Re-Act loop pattern
-- AI client for model interaction (supports OpenAI and Anthropic)
-- Prompt management system with version control
-- Blockchain client for on-chain data access
+## Mejoras implementadas
 
-### 2. Agent Types
-- Coordinator Agent: Manages the analysis workflow and synthesizes results
-- Crawler Agent: Gathers information from various sources
-  - Modular design with specialized crawlers and extractors
-  - Support for websites, GitHub, DeFiLlama, and social media
-- Analysis Agent: Performs technical analysis of smart contracts
-  - ABI analysis and function classification
-  - Proxy detection
-  - Whitelist mechanism analysis
-- Verification Agent: Validates and enhances analysis results
-  - Schema validation
-  - Data quality assessment
-  - Cross-contract consistency checks
+### 1. Soporte para múltiples modelos de IA
 
-### 3. Data Models
-- Project and contract models
-- Function and parameter models
-- Analysis log and metrics models
-- Security assessment models
-- Whitelist mechanism models
-- Interaction flow models
+El sistema ahora admite múltiples proveedores de modelos de IA:
 
-### 4. Services
-- DeFiLlama integration for project data
-- Blockchain interaction capabilities
+- **OpenAI** (GPT-4, etc.)
+- **Anthropic** (Claude)
+- **Google** (Gemini)
+- **API personalizada** (para cualquier otro proveedor o modelo auto-alojado)
 
-### 5. Prompt Templates
-- Initial planning for Coordinator Agent
-- Initial discovery for Crawler Agent
-- ABI analysis for Analysis Agent
-- Validation for Verification Agent
+Estas mejoras permiten mayor flexibilidad, mejor rendimiento y adaptabilidad al cambio en el panorama de los modelos de IA.
 
-## Running the System
+### 2. Integración con Firecrawl.dev
 
-1. Install dependencies:
+Se ha añadido una nueva integración con la API de Firecrawl.dev para mejorar significativamente las capacidades de recopilación de datos:
+
+- **Mapeo de sitios web**: Descubrimiento eficiente de URLs relevantes
+- **Extracción avanzada de contenido**: Obtención de contenido limpio y estructurado
+- **Investigación profunda**: Análisis automático de múltiples fuentes de datos
+- **Extracción estructurada**: Extracción de información específica como direcciones de contratos
+
+### 3. Mejor arquitectura de agentes
+
+El sistema de agentes ha sido mejorado para ser más modular y extensible:
+
+- **Inyección de dependencias**: Facilita las pruebas y el intercambio de componentes
+- **Manejo de herramientas mejorado**: Los agentes pueden utilizar múltiples herramientas de manera flexible
+- **Mejores estrategias de recuperación**: Manejo más robusto de errores y fallos
+
+### 4. API interactiva y WebSockets
+
+Nueva API para interacción conversacional con el sistema:
+
+- **Endpoints RESTful**: Para iniciar análisis y consultar resultados
+- **Soporte WebSockets**: Para actualizaciones en tiempo real del progreso de análisis
+- **Gestión de sesiones**: Permite mantener múltiples conversaciones simultáneas
+- **Sistema de mensajes estructurado**: Para una comunicación clara y consistente
+
+### 5. Sistema de rating de proyectos
+
+Implementación de un sistema de calificación de proyectos basado en múltiples factores:
+
+- **Calidad del contrato**: Verificación y estructura
+- **Documentación**: Disponibilidad y claridad
+- **Implementación de whitelist**: Sofisticación y eficiencia
+- **Seguridad**: Evaluación de riesgos y mejores prácticas
+- **Calidad del código**: Uso de patrones y estándares
+
+## Configuración
+
+Para configurar el proyecto con las nuevas mejoras:
+
+1. **Copia el archivo de configuración**:
+   ```
+   cp .env.example .env
+   ```
+
+2. **Configura las claves API**:
+   - Configura al menos una clave API para el modelo de IA que desees usar (OpenAI, Anthropic, Gemini)
+   - Si deseas usar Firecrawl, añade tu clave API de Firecrawl
+
+3. **Instala las dependencias**:
+   ```
+   poetry install
+   ```
+
+## Modos de uso
+
+### 1. Análisis directo de AAVE
+
+Para realizar un análisis directo de AAVE:
+
+```bash
+python analyze_aave.py
 ```
-poetry install
+
+Este script:
+- Inicia automáticamente el análisis del proyecto AAVE
+- Muestra el progreso en la consola
+- Guarda los resultados en `output/AAVE_analysis_result.json`
+- Muestra un resumen de la calificación al finalizar
+
+### 2. Modo API
+
+Para iniciar el servidor API:
+
+```bash
+python app.py
 ```
 
-2. Run the analysis:
+Esto iniciará un servidor FastAPI en `http://localhost:8000` con documentación disponible en `http://localhost:8000/docs`.
+
+### 3. Cliente de ejemplo
+
+Se proporciona un cliente de ejemplo para interactuar con la API:
+
+```bash
+python api_client_example.py
 ```
-poetry run python main.py "Project Name" --website "https://project-website.com" --github "https://github.com/project/repo"
+
+Este cliente:
+- Crea una sesión de análisis
+- Conecta a WebSockets para actualizaciones en tiempo real
+- Inicia el análisis de AAVE
+- Permite preguntar sobre el proyecto durante y después del análisis
+
+## Ejemplo de uso de la API
+
+### Uso básico
+
+```python
+# Iniciar una sesión
+POST /api/sessions
+# Respuesta: {"session_id": "123e4567-e89b-12d3-a456-426614174000", ...}
+
+# Iniciar análisis de AAVE
+POST /api/sessions/123e4567-e89b-12d3-a456-426614174000/projects
+{
+  "project_name": "AAVE",
+  "website": "https://aave.com",
+  "github_url": "https://github.com/aave"
+}
+
+# Preguntar sobre el proyecto
+POST /api/sessions/123e4567-e89b-12d3-a456-426614174000/messages
+{
+  "text": "¿Qué calificación tiene AAVE y por qué?"
+}
 ```
 
-## Next Steps
+### Uso con WebSockets
 
-1. **Expand Prompt Templates**:
-   - Create additional templates for all agent states
-   - Refine prompts for better performance
+```javascript
+// Conectar a WebSocket
+const ws = new WebSocket('ws://localhost:8000/ws/123e4567-e89b-12d3-a456-426614174000');
 
-2. **Add Frontend**:
-   - Develop a web interface for analysis results
-   - Visualize smart contract relationships and whitelist mechanisms
+// Escuchar mensajes de progreso
+ws.onmessage = function(event) {
+  const message = JSON.parse(event.data);
+  console.log(message.text);
+};
 
-3. **Enhance Testing**:
-   - Add comprehensive unit and integration tests
-   - Create benchmark datasets
+// Enviar mensaje
+ws.send(JSON.stringify({
+  type: "message",
+  text: "Analiza AAVE para mí"
+}));
+```
 
-4. **Performance Optimization**:
-   - Implement caching for blockchain and API requests
-   - Optimize parallel processing of multiple contracts
+## Notas técnicas
 
-5. **Integration Expansions**:
-   - Support more blockchain explorers
-   - Add more DeFi protocol integrations
-   - Implement direct read access to blockchain networks
-
-## Architecture Decisions
-
-1. **Modular Agent Design**:
-   - Each agent focuses on specific tasks
-   - Components are easily extensible
-   - Dependency injection for flexibility
-
-2. **Prompt Management**:
-   - Version control for iterative improvement
-   - State-aware prompts for specific tasks
-   - Metrics for prompt effectiveness
-
-3. **Data Flow**:
-   - Clear separation of data gathering, analysis, and verification
-   - Structured logs for traceability
-   - Consistent data models throughout the system
-
-4. **Error Handling**:
-   - Robust error recovery in agents
-   - Fallback strategies for API failures
-   - Verification to catch and correct issues
+- La API está diseñada para ser asíncrona, permitiendo que los análisis se ejecuten en segundo plano mientras el usuario sigue interactuando con el sistema.
+- El sistema de calificación pondera diferentes factores según su importancia relativa para dar una calificación global al proyecto.
+- Los WebSockets proporcionan actualizaciones en tiempo real del progreso del análisis, lo que mejora significativamente la experiencia del usuario.
+- El modo conversacional permite a los usuarios obtener información específica sobre los proyectos de manera natural, similar a chatear con un experto en blockchain.
