@@ -1,117 +1,101 @@
-"""Contract data models."""
+"""Contract models."""
 
-from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Any, Optional
 from pydantic import BaseModel, Field
+from datetime import datetime
 
-from .function_item import FunctionItem
-from .interaction_flow import InteractionFlow
 from .security import SecurityFinding, SecurityAssessment
-from .whitelist import WhitelistImplementation
+from .function_item import FunctionItem
 
 
-class RelatedContract(BaseModel):
-    """Relationship to another contract."""
+class InteractionFlow(BaseModel):
+    """User interaction flow model."""
     
-    address: str
-    relationship: str  # "calls", "implements", "factory", etc.
-    relationship_details: Optional[str] = None
+    name: str
+    description: Optional[str] = None
+    tags: List[str] = []
+    category: Optional[str] = None
+    steps: List[Dict[str, Any]] = []
+    prerequisites: List[str] = []
+    example_transactions: List[str] = []
+    estimated_completion_time: Optional[str] = None
+    user_level: Optional[str] = None
+    diagram_url: Optional[str] = None
+    success_criteria: Optional[str] = None
 
 
-class ContractMetadata(BaseModel):
-    """Metadata for a contract."""
-    
-    discovered_at: datetime = Field(default_factory=datetime.now)
-    last_updated: datetime = Field(default_factory=datetime.now)
-    analysis_confidence: Dict[str, float] = {
-        "overall": 0.0,
-        "proxy_detection": 0.0,
-        "function_classification": 0.0,
-        "whitelist_analysis": 0.0
-    }
-    verified_source: bool = False
-    compiler_version: Optional[str] = None
-
-
-class SignificantEvent(BaseModel):
-    """Significant event in contract history."""
-    
-    date: datetime
-    tx_hash: str
-    description: str
-    impact: str  # "high", "medium", "low"
-
-
-class TransactionHistory(BaseModel):
-    """Transaction history for a contract."""
-    
-    first_transaction: Optional[datetime] = None
-    latest_transaction: Optional[datetime] = None
-    transaction_count: int = 0
-    significant_events: List[SignificantEvent] = []
-
-
-class PrivilegedRole(BaseModel):
-    """Role with special privileges in the contract."""
-    
-    role: str
-    capabilities: List[str] = []
-    controller: str  # Address or description
-
-
-class ContractBase(BaseModel):
-    """Base contract data."""
+class Contract(BaseModel):
+    """Contract model."""
     
     address: str
     blockchain: str
     name: Optional[str] = None
-    type: List[str] = []  # "proxy", "implementation", "router", "factory", etc.
-
-
-class ContractCreate(ContractBase):
-    """Contract data for creation."""
-    
-    project_id: str
+    type: List[str] = []
     bytecode: Optional[str] = None
-    abi: Optional[List[dict]] = None
+    abi: List[Dict[str, Any]] = []
+    implementation_addresses: List[str] = []
+    related_contracts: List[Dict[str, Any]] = []
+    function_categories: Dict[str, List[FunctionItem]] = {}
+    whitelist_implementation: Optional[Dict[str, Any]] = None
+    user_interaction_flows: List[InteractionFlow] = []
+    security_assessment: Optional[SecurityAssessment] = None
+    metadata: Dict[str, Any] = {}
+    transaction_history: Optional[Dict[str, Any]] = None
+
+
+class ContractCreate(BaseModel):
+    """Contract creation model."""
+    
+    address: str
+    blockchain: str
+    name: Optional[str] = None
+    type: List[str] = []
+    bytecode: Optional[str] = None
+    abi: List[Dict[str, Any]] = []
+    
+    class Config:
+        """Pydantic config."""
+        
+        schema_extra = {
+            "example": {
+                "address": "0x123abc...",
+                "blockchain": "ethereum",
+                "name": "MyToken",
+                "type": ["token", "erc20"],
+                "abi": []
+            }
+        }
 
 
 class ContractUpdate(BaseModel):
-    """Contract data for updates."""
+    """Contract update model."""
     
     name: Optional[str] = None
     type: Optional[List[str]] = None
-    bytecode: Optional[str] = None
-    abi: Optional[List[dict]] = None
     implementation_addresses: Optional[List[str]] = None
-
-
-class Contract(ContractBase):
-    """Contract data with relationships and analysis."""
-    
-    id: str = Field(alias="_id")
-    project_id: str
-    bytecode: Optional[str] = None
-    abi: Optional[List[dict]] = None
-    implementation_addresses: List[str] = []
-    related_contracts: List[RelatedContract] = []
-    function_categories: Dict[str, List[FunctionItem]] = Field(default_factory=dict)
-    whitelist_implementation: Optional[WhitelistImplementation] = None
-    user_interaction_flows: List[InteractionFlow] = []
+    related_contracts: Optional[List[Dict[str, Any]]] = None
+    function_categories: Optional[Dict[str, List[FunctionItem]]] = None
+    whitelist_implementation: Optional[Dict[str, Any]] = None
+    user_interaction_flows: Optional[List[InteractionFlow]] = None
     security_assessment: Optional[SecurityAssessment] = None
-    metadata: ContractMetadata = Field(default_factory=ContractMetadata)
-    transaction_history: TransactionHistory = Field(default_factory=TransactionHistory)
+    metadata: Optional[Dict[str, Any]] = None
     
     class Config:
-        """Pydantic model configuration."""
+        """Pydantic config."""
         
-        populate_by_name = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
+        schema_extra = {
+            "example": {
+                "name": "UpdatedTokenName",
+                "type": ["token", "erc20", "upgradeable"],
+                "implementation_addresses": ["0x456def..."]
+            }
         }
 
 
 class ContractInDB(Contract):
-    """Contract data as stored in database."""
+    """Contract model with DB fields."""
     
-    pass
+    id: str = Field(..., alias="_id")
+    project_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)

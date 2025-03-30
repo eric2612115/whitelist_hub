@@ -1,30 +1,31 @@
-"""Function and parameter data models."""
+"""Function item models."""
 
-from typing import Any, List, Optional
-from pydantic import BaseModel, Field
+from typing import Dict, List, Any, Optional
+from pydantic import BaseModel
 
 
 class ParameterItem(BaseModel):
-    """Smart contract function parameter."""
+    """Parameter item model."""
     
     name: str
     type: str
     description: Optional[str] = None
-    indexed: bool = False  # For event parameters
-    components: Optional[List["ParameterItem"]] = None  # For complex types
+    indexed: Optional[bool] = None
+    components: Optional[List["ParameterItem"]] = None
     example_value: Optional[Any] = None
-    constraints: Optional[str] = None  # Any constraints on the parameter
+    constraints: Optional[str] = None
 
 
-class RiskAssessment(BaseModel):
-    """Risk assessment for a function."""
+class PrivilegedRole(BaseModel):
+    """Privileged role model."""
     
-    level: str  # "high", "medium", "low", "none"
-    description: Optional[str] = None
+    role: str
+    capabilities: List[str]
+    controller: Optional[str] = None
 
 
 class FunctionItem(BaseModel):
-    """Smart contract function details."""
+    """Function item model."""
     
     name: str
     signature: str
@@ -33,15 +34,15 @@ class FunctionItem(BaseModel):
     state_mutability: Optional[str] = None
     description: Optional[str] = None
     purpose: Optional[str] = None
-    is_entry_point: bool = False
-    requires_auth: bool = False
+    is_entry_point: Optional[bool] = None
+    requires_auth: Optional[bool] = None
     auth_role: Optional[str] = None
-    user_accessible: bool = False
+    user_accessible: Optional[bool] = None
     gas_estimate: Optional[int] = None
     related_functions: List[str] = []
-    usage_frequency: Optional[str] = None  # "high", "medium", "low"
-    risk_assessment: Optional[RiskAssessment] = None
+    usage_frequency: Optional[str] = None
+    risk_assessment: Optional[Dict[str, Any]] = None
 
 
-# Resolve forward reference for ParameterItem components
-ParameterItem.model_rebuild()
+# Update forward references
+ParameterItem.update_forward_refs()

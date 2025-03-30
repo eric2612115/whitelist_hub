@@ -1,52 +1,49 @@
-"""Prompt template management."""
+"""Prompt template models and utilities."""
 
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
 
 
-class EffectivenessMetrics(BaseModel):
-    """Metrics for prompt template effectiveness."""
+class PromptTemplateMetadata(BaseModel):
+    """Metadata for a prompt template."""
     
-    avg_score: Optional[float] = None
-    uses: int = 0
-    successes: int = 0
-    success_rate: Optional[float] = None
+    name: str = Field(..., description="Template name")
+    current_version: int = Field(..., description="Current version")
+    versions: List[Dict[str, Any]] = Field([], description="Version history")
 
 
 class PromptTemplate(BaseModel):
-    """Prompt template model."""
+    """Model for a prompt template."""
     
-    id: Optional[str] = Field(None, alias="_id")
-    name: str
-    version: int = 1
-    content: str
-    author: str = "system"
-    change_notes: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.now)
-    effectiveness_metrics: EffectivenessMetrics = Field(default_factory=EffectivenessMetrics)
+    name: str = Field(..., description="Template name")
+    version: int = Field(..., description="Template version")
+    content: str = Field(..., description="Template content")
+    author: str = Field(..., description="Author of the template")
+    created_at: datetime = Field(default_factory=datetime.now, description="Creation timestamp")
+    change_notes: Optional[str] = Field(None, description="Notes about the change")
+    effectiveness_metrics: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "avg_score": None,
+            "uses": 0,
+            "successes": 0,
+            "success_rate": None
+        },
+        description="Effectiveness metrics"
+    )
     
-    class Config:
-        """Pydantic model configuration."""
+    def dict(self, *args, **kwargs):
+        """Convert to dictionary.
         
-        populate_by_name = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-        }
-
-
-class PromptTemplateMetadata(BaseModel):
-    """Metadata for prompt templates."""
-    
-    id: Optional[str] = Field(None, alias="_id")
-    name: str
-    current_version: int = 1
-    category: Optional[str] = None
-    agent_type: Optional[str] = None
-    state: Optional[str] = None
-    description: Optional[str] = None
-    
-    class Config:
-        """Pydantic model configuration."""
-        
-        populate_by_name = True
+        Args:
+            *args: Additional arguments
+            **kwargs: Additional keyword arguments
+            
+        Returns:
+            Dictionary representation
+        """
+        result = super().dict(*args, **kwargs)
+        # Convert datetime to string for proper serialization
+        if isinstance(result.get("created_at"), datetime):
+            result["created_at"] = result["created_at"].isoformat()
+        return result

@@ -1,30 +1,30 @@
-"""Security assessment data models."""
+"""Security models."""
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
 
 from .function_item import PrivilegedRole
 
 
 class SecurityFinding(BaseModel):
-    """Security finding in a contract."""
+    """Security finding model."""
     
-    type: str  # "access-control", "reentrancy", "overflow", etc.
-    severity: str  # "critical", "high", "medium", "low", "informational"
+    type: str
+    severity: str
     title: str
     description: str
     affected_functions: List[str] = []
     vulnerable_patterns: List[str] = []
-    impact: str
-    recommendation: str
-    confidence: str  # "high", "medium", "low"
-    cwe_id: Optional[str] = None  # Common Weakness Enumeration ID if applicable
-    references: List[str] = []  # Similar vulnerabilities or documentation links
+    impact: Optional[str] = None
+    recommendation: Optional[str] = None
+    confidence: Optional[str] = None
+    cwe_id: Optional[str] = None
+    references: List[str] = []
 
 
 class SecurityAssessment(BaseModel):
-    """Security assessment for a contract."""
+    """Security assessment model."""
     
-    risk_level: str  # "high", "medium", "low"
+    risk_level: str
     findings: List[SecurityFinding] = []
     privileged_roles: List[PrivilegedRole] = []

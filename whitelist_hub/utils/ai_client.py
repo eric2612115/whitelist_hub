@@ -7,8 +7,11 @@ from typing import Dict, Any, Optional, List, Union
 
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
-import google.generativeai as genai
-from google.generativeai.types import GenerationConfig
+from google import genai
+# from google import genai
+# from google.genai import types
+# import google.generativeai as genai
+# from google.generativeai import types as genai_types
 from ..core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -46,8 +49,9 @@ class AIClient:
                 api_key=self.api_key
             )
         elif self.provider == "gemini":
+            # Configure Gemini API
             genai.configure(api_key=self.api_key)
-            self.client = genai
+            self.client = genai.Client(api_key=self.api_key)
         elif self.provider == "custom":
             # For custom providers, we'll use a simple API wrapper
             # Actual implementation will depend on the custom API
@@ -96,6 +100,8 @@ class AIClient:
             temperature: Sampling temperature
             max_tokens: Maximum tokens in response
             model: Specific model to use (optional)
+            tools: List of tools to include with the request
+            extra_options: Additional options for the provider
             
         Returns:
             Response from AI model in a standardized format
@@ -141,6 +147,7 @@ class AIClient:
             temperature: Sampling temperature
             max_tokens: Maximum tokens in response
             model: Specific model to use (optional)
+            tools: List of tools to include with the request
             
         Returns:
             Response from OpenAI
@@ -193,6 +200,7 @@ class AIClient:
             temperature: Sampling temperature
             max_tokens: Maximum tokens in response
             model: Specific model to use (optional)
+            tools: List of tools to include with the request
             
         Returns:
             Response formatted to match OpenAI structure
@@ -270,36 +278,27 @@ class AIClient:
         """
         try:
             # Configure the generation parameters
-            generation_config = GenerationConfig(
+            generation_config = genai_types.GenerationConfig(
                 temperature=temperature,
                 max_output_tokens=max_tokens,
             )
             
             # Get the model
-            model_name = model or "gemini-pro"
-            model = self.client.GenerativeModel(model_name=model_name, 
-                                              generation_config=generation_config)
+            model_name = model or "gemini-2.0-flash-001"
             
-            # Create the prompt
-            gemini_prompt = [{
-                "role": "user",
-                "parts": [{"text": self.system_prompt + "\n\n" + prompt}]
-            }]
+            # Create contents with system instruction embedded
+            full_prompt = f"{self.system_prompt}\n\n{prompt}"
             
             # Generate content
             response = await asyncio.to_thread(
-                model.generate_content,
-                gemini_prompt
+                self.client.models.generate_content,
+                model=model_name,
+                contents=full_prompt,
+                generation_config=generation_config
             )
             
             # Extract content
-            content = ""
-            if hasattr(response, "text"):
-                content = response.text
-            elif hasattr(response, "parts"):
-                content = "".join([part.text for part in response.parts if hasattr(part, "text")])
-            else:
-                content = str(response)
+            content = response.text
             
             # Convert to OpenAI format for consistency
             # Note: Gemini doesn't provide token usage, so we estimate

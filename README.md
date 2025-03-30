@@ -10,40 +10,42 @@ An automated blockchain project analysis platform focused on identifying, catego
 - Proxy contract detection
 - User interaction flow generation
 - Security assessment
-- Advanced AI agent framework for comprehensive analysis
-- **Multi-model AI support** (OpenAI, Anthropic Claude, Google Gemini)
+- Advanced AI agent framework based on CrewAI for collaborative analysis
+- **Multi-model AI support** (Anthropic Claude, Google Gemini, Google Vertex)
 - **Advanced web crawling** with Firecrawl.dev integration
-- **Custom AI provider support** for specialized models
+- **MongoDB integration** for persistent data storage
+- **FastAPI-based backend** with WebSockets for real-time analysis updates
 
 ## Architecture
 
-The system is built with a modular architecture:
+The system is built with a modular architecture based on CrewAI:
 
-- AI Agent Framework with specialized agents:
-  - Coordinator Agent: Orchestrates the analysis workflow
-  - Crawler Agent: Gathers project information from various sources
-  - Analysis Agent: Performs technical analysis of contracts
-  - Verification Agent: Validates and enhances analysis results
+- AI Agent Framework with specialized crew members:
+  - **Coordinator Agent**: Leads the analysis workflow and assigns tasks
+  - **Crawler Agent**: Gathers project information from various sources using Firecrawl
+  - **Analysis Agent**: Performs technical analysis of smart contracts
+  - **Verification Agent**: Validates and enhances analysis results
 
 - Core Services:
-  - DeFiLlama Service: Interfaces with DeFiLlama API
-  - Blockchain Client: Handles blockchain interactions
-  - AI Client: Manages communication with AI models
-  - Prompt Manager: Handles prompts with version control
-  - Firecrawl Client: Advanced web crawling and data extraction
+  - **MongoDB Service**: Manages database interactions for persistent storage
+  - **Blockchain Client**: Handles blockchain interactions
+  - **AI Client**: Manages communication with AI models (Claude, Gemini, Vertex)
+  - **Prompt Manager**: Handles prompts with version control
+  - **Firecrawl Client**: Advanced web crawling and data extraction
 
 ## Getting Started
 
 ### Prerequisites
 
-- Python 3.9 or higher
+- Python 3.10 or higher
 - Poetry for dependency management
 - Access to AI model APIs (at least one of the following):
-  - OpenAI API
   - Anthropic Claude API
   - Google Gemini API
-  - Custom AI provider API
-- (Optional) Firecrawl.dev API key for enhanced crawling
+  - Google Vertex API
+- Firecrawl.dev API key for enhanced web crawling
+- MongoDB instance (local or remote)
+- (Optional) Redis for caching and task queue
 - (Optional) Access to blockchain node RPC endpoints
 
 ### Installation
@@ -62,13 +64,20 @@ The system is built with a modular architecture:
 3. Set up environment variables (create a `.env` file):
    ```
    # AI API Keys (at least one is required)
-   OPENAI_API_KEY=your_openai_api_key
    ANTHROPIC_API_KEY=your_anthropic_api_key
    GEMINI_API_KEY=your_gemini_api_key
-   AI_MODEL_PROVIDER=openai  # or anthropic, gemini, custom
+   AI_MODEL_PROVIDER=anthropic  # or gemini, vertex
    
-   # External services (optional but recommended)
+   # External services
    FIRECRAWL_API_KEY=your_firecrawl_api_key
+   
+   # MongoDB connection
+   MONGODB_URL=mongodb://localhost:27017
+   MONGODB_DB_NAME=whitelist_hub
+   
+   # Optional: Redis configuration (for caching/queue)
+   REDIS_HOST=localhost
+   REDIS_PORT=6379
    
    # Blockchain RPC URLs (optional)
    ETHEREUM_RPC_URL=https://mainnet.infura.io/v3/your_key
@@ -76,20 +85,28 @@ The system is built with a modular architecture:
    POLYGON_RPC_URL=https://polygon-rpc.com/
    ```
 
+### Using Google Gemini
+
+To use Google Gemini as your AI model provider:
+
+1. Set the following in your `.env` file:
+   ```
+   GEMINI_API_KEY=your_gemini_api_key
+   AI_MODEL_PROVIDER=gemini
+   ```
+
+2. Run the example script to test Gemini integration:
+   ```
+   poetry run python gemini_example.py
+   ```
+
+3. Default models:
+   - The system uses `gemini-2.0-flash-001` as the default model for standard analysis tasks
+   - You can specify different models by configuring them in your prompts or API calls
+
+Google Gemini offers excellent capabilities for code analysis and whitelist mechanism detection, with fast response times and strong technical understanding of blockchain concepts.
+
 ### Usage
-
-#### Command Line Interface
-
-Run the analysis from the command line:
-
-```
-poetry run python main.py "Project Name" --website "https://project-website.com" --github "https://github.com/project/repo" --framework "auto"
-```
-
-Framework options:
-- `custom` - Uses the custom agent implementation (default)
-- `langchain` - Uses LangChain for all tasks
-- `auto` - Automatically selects the best framework for each task
 
 #### API Server
 
@@ -135,7 +152,7 @@ The API provides interactive project analysis through both REST API and WebSocke
    ws://localhost:8000/ws/{session_id}
    ```
 
-The results will be saved in the `output/` directory with the following files:
+The results will be saved in the MongoDB database and in the `output/` directory with the following files:
 - `Project Name_analysis_result.json`: Final analysis results
 - `Project Name_crawl_log.json`: Log of the crawling process
 - `Project Name_plan_log.json`: Analysis plan created by the coordinator
@@ -151,12 +168,18 @@ whitelist_hub/
 │   ├── agents/               # AI agent framework
 │   │   ├── crawler/          # Crawler agent components
 │   │   ├── analyzer/         # Analysis agent components
-│   │   ├── base_agent.py     # Base agent implementation
-│   │   ├── coordinator_agent.py # Coordinator agent
-│   │   ├── verification_agent.py # Verification agent
-│   │   └── agent_factory.py  # Factory for creating agents
+│   │   ├── base_crew.py      # Base crew implementation
+│   │   ├── coordinator.py    # Coordinator agent
+│   │   ├── verification.py   # Verification agent
+│   │   └── crew_factory.py   # Factory for creating agent crews
+│   ├── api/                  # API endpoints
+│   │   ├── api.py            # Main API implementation
+│   │   ├── connection_manager.py # WebSocket connection manager
+│   │   └── project_analysis_service.py # Analysis service
 │   ├── core/                 # Core functionality
 │   │   └── config/           # Configuration
+│   ├── db/                   # Database integration
+│   │   └── mongodb.py        # MongoDB client implementation
 │   ├── models/               # Data models
 │   ├── prompts/              # Prompt templates
 │   │   └── templates/        # Prompt template files
@@ -166,20 +189,50 @@ whitelist_hub/
 │       ├── ai_client.py      # AI model client
 │       ├── blockchain_client.py # Blockchain client
 │       ├── firecrawl_client.py # Firecrawl client
-│       └── langchain_client.py # LangChain client
+│       └── prompt_utils.py   # Prompt utilities
 ├── tests/                    # Test suite
 ├── main.py                   # Entry point
+├── app.py                    # FastAPI server
+├── gemini_example.py         # Google Gemini example script
 ├── pyproject.toml            # Poetry configuration
 └── README.md                 # This file
 ```
 
+## Key Differences from Previous Version
+
+- Replaced LangChain with CrewAI for improved agent collaboration
+- Focused on Anthropic Claude, Google Gemini, and Google Vertex as the primary LLM providers
+- Direct integration with MongoDB instead of using langchain-mongodb
+- Enhanced real-time analysis through WebSockets
+- Simplified dependency management with fewer version conflicts
+- Restructured agent architecture to follow CrewAI's crew-based approach
+
+## AI Model Comparison
+
+The system supports multiple AI models, each with different strengths:
+
+### Google Gemini
+- **Strengths**: Fast code analysis, excellent technical understanding of blockchain concepts, cost-effective for large-scale analysis
+- **Best for**: Rapid contract analysis, detecting complex whitelist patterns
+- **Default model**: gemini-2.0-flash-001 (fast analysis with good accuracy)
+- **Alternative models**: gemini-2.0-pro-001 (deeper analysis with higher accuracy)
+
+### Anthropic Claude
+- **Strengths**: Detailed explanations, nuanced understanding of contract interactions, excellent reasoning
+- **Best for**: In-depth security analysis, complex pattern detection
+- **Default model**: claude-3-opus-20240229 (comprehensive analysis with high accuracy)
+- **Alternative models**: claude-3-haiku-20240307 (faster analysis with reasonable accuracy)
+
+### Model Selection
+You can switch between models by changing the `AI_MODEL_PROVIDER` environment variable. The system will use the specified provider for all analyses. For specific tasks requiring a different provider, you can create a custom `AIClient` instance with the desired provider.
+
 ## Extending the System
 
-### Adding New Agent Types
+### Creating New Agent Types
 
-1. Create a new agent class inheriting from BaseAgent
-2. Implement agent-specific methods and action handlers
-3. Add the agent to the agent factory
+1. Define a new agent class in the appropriate directory
+2. Update the crew factory to include your new agent type
+3. Configure the agent's tasks and responsibilities in the main crew
 
 ### Adding New AI Models
 

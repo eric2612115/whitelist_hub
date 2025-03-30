@@ -1,144 +1,111 @@
-"""Message models for project analysis communication."""
+"""Message models for Whitelist Hub."""
 
-import enum
-from datetime import datetime
 import uuid
-from typing import Dict, Any, Optional, List
+from enum import Enum
+from typing import Dict, Any, List, Optional
+from datetime import datetime
 
 
-class MessageType(str, enum.Enum):
-    """Message type enumeration."""
+class MessageType(str, Enum):
+    """Enum for message types."""
     
-    NORMAL = "normal"
-    THINKING = "thinking"
-    ERROR = "error"
+    USER = "user"
+    ASSISTANT = "assistant"
     SYSTEM = "system"
-    ACTION = "action"
-    RESULT = "result"
+    ERROR = "error"
+    THINKING = "thinking"
+    RAW = "raw"
 
 
 class MessageStructure:
-    """Helper class for message structure."""
+    """Helper class for formatting messages."""
     
     @staticmethod
-    def format_message(role: str, text: str, message_type: MessageType = MessageType.NORMAL) -> Dict[str, Any]:
+    def format_message(role: str, content: str, message_id: Optional[str] = None) -> Dict[str, Any]:
         """Format a message.
         
         Args:
-            role: Message sender role
-            text: Message text
-            message_type: Message type
+            role: Message role (user/assistant/system)
+            content: Message content
+            message_id: Optional message ID
             
         Returns:
             Formatted message
         """
         return {
-            "id": str(uuid.uuid4()),
-            "message_type": message_type.value,
-            "role": role,
-            "text": text,
+            "id": message_id or str(uuid.uuid4()),
+            "type": role,
+            "content": content,
             "timestamp": datetime.now().isoformat()
         }
     
     @staticmethod
-    def format_ai_response(text: str) -> Dict[str, Any]:
+    def format_ai_response(content: str, message_id: Optional[str] = None) -> Dict[str, Any]:
         """Format an AI response message.
         
         Args:
-            text: Message text
+            content: Message content
+            message_id: Optional message ID
             
         Returns:
             Formatted message
         """
-        return MessageStructure.format_message("assistant", text)
+        return MessageStructure.format_message(MessageType.ASSISTANT, content, message_id)
     
     @staticmethod
-    def format_thinking() -> Dict[str, Any]:
-        """Format a thinking status message.
-        
-        Returns:
-            Formatted message
-        """
-        return {
-            "id": str(uuid.uuid4()),
-            "message_type": MessageType.THINKING.value,
-            "role": "assistant",
-            "text": "Thinking...",
-            "timestamp": datetime.now().isoformat()
-        }
-    
-    @staticmethod
-    def format_error(text: str) -> Dict[str, Any]:
-        """Format an error message.
-        
-        Args:
-            text: Error message
-            
-        Returns:
-            Formatted message
-        """
-        return {
-            "id": str(uuid.uuid4()),
-            "message_type": MessageType.ERROR.value,
-            "role": "system",
-            "text": text,
-            "timestamp": datetime.now().isoformat()
-        }
-    
-    @staticmethod
-    def format_system(text: str) -> Dict[str, Any]:
+    def format_system(content: str, message_id: Optional[str] = None) -> Dict[str, Any]:
         """Format a system message.
         
         Args:
-            text: System message
+            content: Message content
+            message_id: Optional message ID
+            
+        Returns:
+            Formatted message
+        """
+        return MessageStructure.format_message(MessageType.SYSTEM, content, message_id)
+    
+    @staticmethod
+    def format_error(content: str, message_id: Optional[str] = None) -> Dict[str, Any]:
+        """Format an error message.
+        
+        Args:
+            content: Message content
+            message_id: Optional message ID
+            
+        Returns:
+            Formatted message
+        """
+        return MessageStructure.format_message(MessageType.ERROR, content, message_id)
+    
+    @staticmethod
+    def format_thinking(message_id: Optional[str] = None) -> Dict[str, Any]:
+        """Format a thinking message.
+        
+        Args:
+            message_id: Optional message ID
             
         Returns:
             Formatted message
         """
         return {
-            "id": str(uuid.uuid4()),
-            "message_type": MessageType.SYSTEM.value,
-            "role": "system",
-            "text": text,
+            "id": message_id or str(uuid.uuid4()),
+            "type": MessageType.THINKING,
             "timestamp": datetime.now().isoformat()
         }
     
     @staticmethod
-    def format_action(action_type: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Format an action message.
+    def format_raw(data: Dict[str, Any], message_id: Optional[str] = None) -> Dict[str, Any]:
+        """Format a raw message.
         
         Args:
-            action_type: Action type
-            params: Action parameters
+            data: Raw message data
+            message_id: Optional message ID
             
         Returns:
             Formatted message
         """
-        return {
-            "id": str(uuid.uuid4()),
-            "message_type": MessageType.ACTION.value,
-            "role": "assistant",
-            "action_type": action_type,
-            "params": params,
-            "timestamp": datetime.now().isoformat()
-        }
-    
-    @staticmethod
-    def format_result(action_type: str, result: Any) -> Dict[str, Any]:
-        """Format an action result message.
-        
-        Args:
-            action_type: Action type
-            result: Action result
-            
-        Returns:
-            Formatted message
-        """
-        return {
-            "id": str(uuid.uuid4()),
-            "message_type": MessageType.RESULT.value,
-            "role": "system",
-            "action_type": action_type,
-            "result": result,
-            "timestamp": datetime.now().isoformat()
-        }
+        data["id"] = message_id or str(uuid.uuid4())
+        data["type"] = MessageType.RAW
+        data["timestamp"] = datetime.now().isoformat()
+        return data

@@ -1,444 +1,534 @@
-"""Main Crawler Agent implementation."""
+"""Crawler agent for gathering project information."""
 
 import logging
-from typing import Dict, List, Any, Optional, Tuple, Set
+import json
+import re
+from typing import Dict, Any, List, Optional, Tuple, Set
 
-from ...models.analysis_log import AnalysisLog
-from ..base_agent import BaseAgent
-from .source_crawlers import (
-    WebsiteCrawler,
-    GithubCrawler,
-    DefiLlamaCrawler,
-    SocialMediaCrawler
-)
-from .data_extractors import (
-    ContractExtractor,
-    WhitelistExtractor,
-    ProjectDetailsExtractor
-)
+from crewai import Agent
+
+from ...utils.ai_client import AIClient
+from ...prompts.prompt_manager import PromptManager
 from ...utils.blockchain_client import BlockchainClient
 from ...utils.firecrawl_client import FirecrawlClient
+from ...services.defillama_service import DefiLlamaService
 
 logger = logging.getLogger(__name__)
 
 
-class CrawlerAgent(BaseAgent):
-    """Crawler Agent for gathering blockchain project information."""
+class CrawlerAgent:
+    """Crawler agent responsible for gathering project information."""
     
     def __init__(
         self,
-        blockchain_client=None,
-        website_crawler=None,
-        github_crawler=None,
-        defillama_crawler=None,
-        social_media_crawler=None,
-        firecrawl_client=None,
-        contract_extractor=None,
-        whitelist_extractor=None,
-        project_details_extractor=None,
-        *args,
-        **kwargs
+        ai_client: AIClient,
+        prompt_manager: PromptManager,
+        blockchain_client: BlockchainClient,
+        firecrawl_client: FirecrawlClient,
+        defillama_service: DefiLlamaService
     ):
-        """Initialize Crawler Agent with dependency injection.
+        """Initialize crawler agent.
         
         Args:
-            blockchain_client: Client for blockchain interactions
-            website_crawler: Component for crawling websites
-            github_crawler: Component for crawling GitHub repositories
-            defillama_crawler: Component for fetching DeFiLlama data
-            social_media_crawler: Component for crawling social media
-            firecrawl_client: Client for Firecrawl.dev API
-            contract_extractor: Component for extracting contract info
-            whitelist_extractor: Component for extracting whitelist info
-            project_details_extractor: Component for extracting project details
+            ai_client: AI client for agent
+            prompt_manager: Prompt manager for agent templates
+            blockchain_client: Blockchain client for interactions
+            firecrawl_client: Firecrawl client for web crawling
+            defillama_service: DeFiLlama service for project data
         """
-        super().__init__(agent_type="crawler", *args, **kwargs)
-        
-        # Initialize components with dependency injection or defaults
-        self.blockchain_client = blockchain_client or BlockchainClient()
-        self.website_crawler = website_crawler or WebsiteCrawler()
-        self.github_crawler = github_crawler or GithubCrawler()
-        self.defillama_crawler = defillama_crawler or DefiLlamaCrawler()
-        self.social_media_crawler = social_media_crawler or SocialMediaCrawler()
-        self.firecrawl_client = firecrawl_client or FirecrawlClient()
-        self.contract_extractor = contract_extractor or ContractExtractor(self.blockchain_client)
-        self.whitelist_extractor = whitelist_extractor or WhitelistExtractor()
-        self.project_details_extractor = project_details_extractor or ProjectDetailsExtractor()
+        self.ai_client = ai_client
+        self.prompt_manager = prompt_manager
+        self.blockchain_client = blockchain_client
+        self.firecrawl_client = firecrawl_client
+        self.defillama_service = defillama_service
+        self._agent = None
     
-    async def crawl_project_information(
-        self, 
-        project_name: str, 
-        website: Optional[str] = None,
-        github_url: Optional[str] = None
-    ) -> Tuple[Dict[str, Any], AnalysisLog]:
-        """Crawl project information from various sources.
-        
-        Args:
-            project_name: Name of the project
-            website: Project website URL
-            github_url: Project GitHub URL
-            
-        Returns:
-            Tuple of (project data, analysis log)
-        """
-        context = {
-            "project_name": project_name,
-            "website": website,
-            "github_url": github_url,
-            "crawled_data": {},
-            "contract_addresses": set()
-        }
-        
-        return await self.run(
-            task="Collect comprehensive information about this blockchain project",
-            context=context,
-            initial_state="initial_discovery"
-        )
-    
-    async def analyze_documentation(
-        self, 
-        project_name: str, 
-        documentation_content: str
-    ) -> Tuple[Dict[str, Any], AnalysisLog]:
-        """Analyze project documentation to extract smart contract information.
-        
-        Args:
-            project_name: Name of the project
-            documentation_content: Project documentation content
-            
-        Returns:
-            Tuple of (extracted information, analysis log)
-        """
-        context = {
-            "project_name": project_name,
-            "project_category": "",  # To be discovered
-            "documentation_content": documentation_content,
-            "extracted_information": {
-                "contract_addresses": [],
-                "architecture_info": {},
-                "whitelist_info": {},
-                "additional_info": {}
-            }
-        }
-        
-        return await self.run(
-            task="Analyze project documentation to extract smart contract information",
-            context=context,
-            initial_state="documentation_analysis"
-        )
-    
-    async def analyze_github_repository(
-        self, 
-        project_name: str,
-        github_url: str,
-        repo_structure: Dict[str, Any]
-    ) -> Tuple[Dict[str, Any], AnalysisLog]:
-        """Analyze GitHub repository to find contract code and ABIs.
-        
-        Args:
-            project_name: Name of the project
-            github_url: GitHub repository URL
-            repo_structure: Repository file structure
-            
-        Returns:
-            Tuple of (repository analysis, analysis log)
-        """
-        context = {
-            "project_name": project_name,
-            "github_url": github_url,
-            "repo_structure_json": repo_structure,
-            "recent_commits_json": [],  # Would be populated by GitHub API
-            "readme_content": "",  # Would be populated by GitHub API
-            "extracted_information": {
-                "contract_files": [],
-                "abi_files": [],
-                "deployment_info": [],
-                "whitelist_implementations": []
-            }
-        }
-        
-        return await self.run(
-            task="Analyze GitHub repository to find contract code and ABIs",
-            context=context,
-            initial_state="github_analysis"
-        )
-    
-    async def analyze_social_content(
+    def create_agent(
         self,
-        project_name: str,
-        social_content: Dict[str, List[Dict[str, Any]]],
-        announcement_channels: Dict[str, str]
-    ) -> Tuple[Dict[str, Any], AnalysisLog]:
-        """Analyze social media and announcements for contract information.
+        name: str = "Crawler",
+        goal: str = "Gather comprehensive information about blockchain projects, including contracts, documentation, and technical details",
+        backstory: Optional[str] = None,
+        verbose: bool = True
+    ) -> Agent:
+        """Create a CrewAI agent for the crawler.
         
         Args:
-            project_name: Name of the project
-            social_content: Social media content by platform
-            announcement_channels: URLs of announcement channels
+            name: Agent name
+            goal: Agent goal
+            backstory: Agent backstory
+            verbose: Whether to enable verbose logging
             
         Returns:
-            Tuple of (social analysis, analysis log)
+            CrewAI Agent instance
         """
-        context = {
-            "project_name": project_name,
-            "social_content_json": social_content,
-            "announcement_channels_json": announcement_channels,
-            "extracted_information": {
-                "contract_addresses": [],
-                "whitelist_announcements": [],
-                "project_milestones": [],
-                "community_insights": []
-            }
-        }
+        if not backstory:
+            backstory = """You are a specialized crawler agent with expertise in extracting
+            blockchain project information from multiple sources. You have extensive knowledge
+            of cryptocurrency project structures, smart contract patterns, and documentation styles.
+            You can efficiently navigate project websites, GitHub repositories, blockchain explorers,
+            and other sources to gather relevant information about contracts, whitelist mechanisms,
+            and project architecture. You are detail-oriented and thorough in your data collection."""
         
-        return await self.run(
-            task="Analyze social media and announcements for contract information",
-            context=context,
-            initial_state="social_analysis"
+        # Custom callback to use ai_client
+        async def callback_function(message):
+            response = await self.ai_client.get_completion(message, temperature=0.1, max_tokens=4000)
+            return response["choices"][0]["message"]["content"]
+        
+        # Create the agent
+        self._agent = Agent(
+            name=name,
+            role="Blockchain Project Crawler",
+            goal=goal,
+            backstory=backstory,
+            verbose=verbose,
+            allow_delegation=False,
+            tools=[
+                self.crawl_project_website,
+                self.crawl_github_repository,
+                self.search_for_project_info,
+                self.extract_contract_addresses,
+                self.get_project_tvl_data
+            ],
+            async_callbacks=[callback_function]
         )
+        
+        return self._agent
     
-    async def _execute_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute crawler-specific actions.
+    def get_agent(self) -> Agent:
+        """Get the CrewAI agent instance.
         
-        Args:
-            action: Action to execute
-            
         Returns:
-            Result of action execution
+            CrewAI Agent instance
         """
-        action_type = action.get("type", "").lower()
-        params = action.get("params", {})
-        
-        if action_type == "fetch_defillama_data":
-            # Fetch project data from DeFiLlama
-            project_name = params.get("project_name") or self.context.get("project_name")
-            result = await self.defillama_crawler.fetch_project_data(project_name)
-            return {"defillama_data": result}
-            
-        elif action_type == "crawl_website":
-            # Crawl project website
-            website_url = params.get("website") or self.context.get("website")
-            # Check if we should use Firecrawl or standard crawler
-            use_firecrawl = params.get("use_firecrawl", True)
-            if use_firecrawl:
-                result = await self._crawl_with_firecrawl(website_url)
-            else:
-                result = await self.website_crawler.crawl(website_url)
-            return {"website_data": result}
-            
-        elif action_type == "crawl_github":
-            # Crawl GitHub repository
-            github_url = params.get("github_url") or self.context.get("github_url")
-            result = await self.github_crawler.crawl(github_url)
-            return {"github_data": result}
-            
-        elif action_type == "search_contract_addresses":
-            # Search for contract addresses in content
-            content = params.get("content", "")
-            blockchain = params.get("blockchain")
-            result = self.contract_extractor.extract_addresses(content, blockchain)
-            return {"found_addresses": result}
-            
-        elif action_type == "extract_structured_data":
-            # Extract structured data from content
-            content = params.get("content", "")
-            data_type = params.get("data_type", "")
-            
-            if data_type == "whitelist":
-                result = self.whitelist_extractor.extract(content)
-            elif data_type == "project_details":
-                result = self.project_details_extractor.extract(content)
-            else:
-                result = {"error": f"Unsupported data type: {data_type}"}
-                
-            return {"extracted_data": result}
-            
-        elif action_type == "verify_contract_address":
-            # Verify if address is a valid contract
-            address = params.get("address", "")
-            blockchain = params.get("blockchain", "ethereum")
-            result = await self.contract_extractor.verify_contract(address, blockchain)
-            return {"verification_result": result}
-            
-        elif action_type == "deep_research":
-            # Conduct deep research using Firecrawl
-            query = params.get("query", "") or f"{self.context.get('project_name')} blockchain whitelist"
-            max_urls = params.get("max_urls", 10)
-            max_depth = params.get("max_depth", 3)
-            result = await self.firecrawl_client.deep_research(query, max_urls, max_depth)
-            return {"research_result": result}
-            
-        elif action_type == "aggregate_results":
-            # Aggregate results from multiple sources
-            sources = params.get("sources", {})
-            result = self._aggregate_results(sources)
-            return {"aggregated_data": result}
-            
-        else:
-            # Fall back to base implementation
-            return await super()._execute_action(action)
+        if not self._agent:
+            return self.create_agent()
+        return self._agent
     
-    def _aggregate_results(self, sources: Dict[str, Any]) -> Dict[str, Any]:
-        """Aggregate results from multiple sources.
+    async def crawl_project_website(self, website_url: str) -> Dict[str, Any]:
+        """Crawl project website to extract information.
         
         Args:
-            sources: Results from different sources
+            website_url: Project website URL
             
         Returns:
-            Aggregated results
-        """
-        # Collect contract addresses from all sources
-        all_addresses = set()
-        address_details = []
-        
-        for source_name, source_data in sources.items():
-            if source_name == "defillama_data" and source_data.get("success"):
-                addresses = source_data.get("addresses", {})
-                for chain, chain_addresses in addresses.items():
-                    for address in chain_addresses:
-                        all_addresses.add((address, chain))
-                        address_details.append({
-                            "address": address,
-                            "blockchain": chain,
-                            "source": "defillama",
-                            "confidence": "high"
-                        })
-            
-            elif source_name == "website_data" and source_data.get("success"):
-                for address_info in source_data.get("contract_addresses", []):
-                    address = address_info.get("address")
-                    blockchain = address_info.get("blockchain")
-                    if address and blockchain:
-                        all_addresses.add((address, blockchain))
-                        address_details.append({
-                            "address": address,
-                            "blockchain": blockchain,
-                            "source": "website",
-                            "context": address_info.get("context", ""),
-                            "confidence": "medium"
-                        })
-            
-            elif source_name == "github_data" and source_data.get("success"):
-                # Extract addresses from deployment files or readmes
-                # This would be more complex in a real implementation
-                pass
-        
-        # Collect documentation links
-        doc_links = []
-        if sources.get("website_data", {}).get("success"):
-            doc_links.extend(sources.get("website_data", {}).get("documentation_links", []))
-        
-        # Collect project details
-        project_details = {}
-        
-        # DeFiLlama is considered high-quality source for project details
-        if sources.get("defillama_data", {}).get("success"):
-            defillama_data = sources.get("defillama_data", {})
-            project_details = {
-                "name": defillama_data.get("name"),
-                "description": defillama_data.get("description"),
-                "category": defillama_data.get("category"),
-                "tvl": defillama_data.get("tvl"),
-                "chains": defillama_data.get("chains", []),
-                "website": defillama_data.get("website"),
-                "twitter": defillama_data.get("twitter"),
-                "github": defillama_data.get("github"),
-                "source": "defillama"
-            }
-        
-        # Return aggregated results
-        return {
-            "contract_addresses": address_details,
-            "unique_address_count": len(all_addresses),
-            "documentation_links": doc_links,
-            "project_details": project_details,
-            "sources_used": list(sources.keys())
-        }
-        
-    async def _crawl_with_firecrawl(self, website_url: str) -> Dict[str, Any]:
-        """Crawl website using Firecrawl.dev API.
-        
-        Args:
-            website_url: Website URL to crawl
-            
-        Returns:
-            Crawling results
+            Extracted website information
         """
         try:
-            # First, map the site to find all relevant URLs
-            site_map_result = await self.firecrawl_client.map_urls(
-                url=website_url,
-                include_subdomains=True,
-                limit=100
-            )
-            
-            # Extract docs, whitepapers, and other relevant URLs
-            urls = site_map_result.get("urls", [])
-            docs_urls = []
-            whitepaper_urls = []
-            about_urls = []
-            contract_urls = []
-            
-            for url in urls:
-                lower_url = url.lower()
-                if any(term in lower_url for term in ["doc", "docs", "documentation", "gitbook", "guide"]):
-                    docs_urls.append(url)
-                elif any(term in lower_url for term in ["whitepaper", "paper", "litepaper"]):
-                    whitepaper_urls.append(url)
-                elif any(term in lower_url for term in ["about", "team"]):
-                    about_urls.append(url)
-                elif any(term in lower_url for term in ["contract", "token", "address", "whitelist", "audit"]):
-                    contract_urls.append(url)
-            
-            # Scrape main page
-            main_page_result = await self.firecrawl_client.scrape_url(
-                url=website_url,
+            # First scrape the main page
+            main_page = await self.firecrawl_client.scrape_url(
+                website_url,
                 formats=["markdown", "links"],
                 only_main_content=True
             )
             
-            # Scrape important pages
-            important_urls = []
-            important_urls.extend(docs_urls[:3])  # Top 3 docs URLs
-            important_urls.extend(whitepaper_urls[:1])  # Top whitepaper URL
-            important_urls.extend(contract_urls[:3])  # Top 3 contract URLs
+            # Get all links from the main page
+            links = main_page.get("links", [])
             
-            scraped_pages = {}
-            for url in important_urls:
+            # Filter for documentation, whitepaper, and other relevant pages
+            docs_links = [link for link in links if any(term in link.lower() 
+                         for term in ["docs", "whitepaper", "documentation", "about", "tokenomics"])]
+            
+            # Limit to top 5 most relevant docs links
+            docs_links = docs_links[:5]
+            
+            # Scrape each documentation page
+            docs_content = []
+            for link in docs_links:
                 try:
-                    page_result = await self.firecrawl_client.scrape_url(
-                        url=url,
+                    # Ensure absolute URL
+                    if not link.startswith(("http://", "https://")):
+                        if link.startswith("/"):
+                            # Absolute path
+                            parts = website_url.split("/")
+                            base = parts[0] + "//" + parts[2]
+                            link = base + link
+                        else:
+                            # Relative path
+                            link = website_url.rstrip("/") + "/" + link
+                    
+                    # Scrape the documentation page
+                    doc_page = await self.firecrawl_client.scrape_url(
+                        link,
                         formats=["markdown"],
                         only_main_content=True
                     )
-                    if page_result.get("markdown"):
-                        scraped_pages[url] = page_result
+                    
+                    # Add to docs content
+                    if "markdown" in doc_page:
+                        docs_content.append({
+                            "url": link,
+                            "content": doc_page["markdown"]
+                        })
                 except Exception as e:
-                    logger.warning(f"Error scraping {url}: {str(e)}")
+                    logger.warning(f"Error scraping documentation page {link}: {e}")
             
-            # Extract contract addresses from scraped content
-            combined_content = main_page_result.get("markdown", "")
-            for page_data in scraped_pages.values():
-                combined_content += "\n" + page_data.get("markdown", "")
-                
-            contract_addresses = self.contract_extractor.extract_addresses(combined_content)
+            # Extract potential contract addresses from all pages
+            all_content = main_page.get("markdown", "") + "\n" + "\n".join(
+                doc["content"] for doc in docs_content
+            )
             
-            # Create result
-            return {
-                "success": True,
-                "main_content": main_page_result.get("markdown", ""),
-                "pages": scraped_pages,
-                "site_structure": {
-                    "total_urls": len(urls),
-                    "docs_urls": docs_urls,
-                    "whitepaper_urls": whitepaper_urls,
-                    "contract_urls": contract_urls,
-                    "about_urls": about_urls
-                },
-                "contract_addresses": contract_addresses,
-                "documentation_links": docs_urls + whitepaper_urls
+            # Extract contract addresses
+            contract_addresses = self._extract_addresses_from_text(all_content)
+            
+            # Extract social links
+            social_links = self._extract_social_links(links)
+            
+            # Compose the result
+            result = {
+                "website_url": website_url,
+                "main_content": main_page.get("markdown", ""),
+                "documentation_pages": docs_content,
+                "potential_contract_addresses": list(contract_addresses),
+                "social_links": social_links,
+                "all_links": links
             }
+            
+            return result
+            
         except Exception as e:
-            logger.error(f"Error using Firecrawl to crawl {website_url}: {str(e)}")
-            # Fallback to standard crawler if Firecrawl fails
-            return await self.website_crawler.crawl(website_url)
+            logger.error(f"Error crawling website {website_url}: {e}")
+            return {
+                "website_url": website_url,
+                "error": str(e),
+                "main_content": "",
+                "documentation_pages": [],
+                "potential_contract_addresses": [],
+                "social_links": {},
+                "all_links": []
+            }
+    
+    async def crawl_github_repository(self, github_url: str) -> Dict[str, Any]:
+        """Crawl GitHub repository for project information.
+        
+        Args:
+            github_url: GitHub repository URL
+            
+        Returns:
+            Extracted GitHub information
+        """
+        try:
+            # Normalize GitHub URL
+            if not github_url.startswith(("http://", "https://")):
+                github_url = "https://github.com/" + github_url.lstrip("/")
+            
+            # Scrape the main repository page
+            repo_page = await self.firecrawl_client.scrape_url(
+                github_url,
+                formats=["markdown", "links"],
+                only_main_content=False
+            )
+            
+            # Get all links from the repository
+            links = repo_page.get("links", [])
+            
+            # Filter for contract files
+            contract_file_links = [link for link in links if any(ext in link.lower() 
+                                for ext in [".sol", "/contracts/", "/contracts"])]
+            
+            # Limit to top 10 most relevant contract files
+            contract_file_links = contract_file_links[:10]
+            
+            # Scrape each contract file
+            contract_files = []
+            for link in contract_file_links:
+                try:
+                    # Ensure absolute URL
+                    if not link.startswith(("http://", "https://")):
+                        if link.startswith("/"):
+                            # Absolute path
+                            parts = github_url.split("/")
+                            base = parts[0] + "//" + parts[2]
+                            link = base + link
+                        else:
+                            # Relative path
+                            link = github_url.rstrip("/") + "/" + link
+                    
+                    # Adjust link for raw content if needed
+                    if "github.com" in link and "/blob/" in link:
+                        # Convert to raw content URL
+                        link = link.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
+                    
+                    # Scrape the contract file
+                    contract_page = await self.firecrawl_client.scrape_url(
+                        link,
+                        formats=["rawHtml"],  # Use rawHtml to get the code
+                        only_main_content=False
+                    )
+                    
+                    # Add to contract files
+                    if "rawHtml" in contract_page:
+                        # Extract just the code from the raw HTML
+                        code = contract_page["rawHtml"]
+                        # Clean up HTML if needed
+                        if "<" in code and ">" in code:
+                            # Simple HTML stripping for code display
+                            code = re.sub(r'<[^>]+>', '', code)
+                        
+                        contract_files.append({
+                            "url": link,
+                            "code": code
+                        })
+                except Exception as e:
+                    logger.warning(f"Error scraping contract file {link}: {e}")
+            
+            # Look for README file
+            readme_content = ""
+            for content_type in ["markdown", "rawHtml"]:
+                if content_type in repo_page and repo_page[content_type]:
+                    readme_content = repo_page[content_type]
+                    break
+            
+            # Extract contract addresses from all files
+            all_content = readme_content + "\n" + "\n".join(
+                contract["code"] for contract in contract_files
+            )
+            
+            # Extract contract addresses
+            contract_addresses = self._extract_addresses_from_text(all_content)
+            
+            # Compose the result
+            result = {
+                "github_url": github_url,
+                "readme_content": readme_content,
+                "contract_files": contract_files,
+                "potential_contract_addresses": list(contract_addresses),
+                "all_links": links
+            }
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error crawling GitHub repository {github_url}: {e}")
+            return {
+                "github_url": github_url,
+                "error": str(e),
+                "readme_content": "",
+                "contract_files": [],
+                "potential_contract_addresses": [],
+                "all_links": []
+            }
+    
+    async def search_for_project_info(self, project_name: str) -> Dict[str, Any]:
+        """Search for project information using Firecrawl search.
+        
+        Args:
+            project_name: Name of the project
+            
+        Returns:
+            Search results
+        """
+        try:
+            # Search queries
+            queries = [
+                f"{project_name} blockchain project",
+                f"{project_name} whitelist smart contract",
+                f"{project_name} github repository",
+                f"{project_name} documentation"
+            ]
+            
+            all_results = []
+            for query in queries:
+                # Search with Firecrawl
+                search_results = await self.firecrawl_client.search(
+                    query,
+                    limit=5,
+                    scrape_options={
+                        "onlyMainContent": True,
+                        "formats": ["markdown"]
+                    }
+                )
+                
+                # Add results
+                if "results" in search_results:
+                    all_results.extend(search_results["results"])
+            
+            # Extract unique URLs
+            unique_urls = {}
+            for result in all_results:
+                url = result.get("url", "")
+                if url and url not in unique_urls:
+                    unique_urls[url] = result
+            
+            # Extract website and GitHub URLs
+            website_url = None
+            github_url = None
+            
+            for url in unique_urls.keys():
+                if not website_url and self._is_project_website(url, project_name):
+                    website_url = url
+                
+                if not github_url and "github.com" in url.lower():
+                    # Check if this is likely the project's repository
+                    if project_name.lower().replace(" ", "") in url.lower().replace("-", "").replace("_", ""):
+                        github_url = url
+            
+            # Compose the result
+            result = {
+                "project_name": project_name,
+                "website_url": website_url,
+                "github_url": github_url,
+                "search_results": list(unique_urls.values())
+            }
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error searching for project info {project_name}: {e}")
+            return {
+                "project_name": project_name,
+                "error": str(e),
+                "website_url": None,
+                "github_url": None,
+                "search_results": []
+            }
+    
+    async def extract_contract_addresses(self, content: str) -> List[Dict[str, str]]:
+        """Extract contract addresses from text content.
+        
+        Args:
+            content: Text content to extract addresses from
+            
+        Returns:
+            List of contract addresses with blockchains
+        """
+        addresses = self._extract_addresses_from_text(content)
+        
+        # Verify each address and determine blockchain
+        verified_addresses = []
+        for address in addresses:
+            for blockchain in ["ethereum", "bsc", "polygon", "arbitrum", "optimism"]:
+                try:
+                    # Check if address exists on this blockchain
+                    is_valid = await self.blockchain_client.is_valid_contract(address, blockchain)
+                    if is_valid:
+                        verified_addresses.append({
+                            "address": address,
+                            "blockchain": blockchain
+                        })
+                        break  # Found the right blockchain
+                except Exception as e:
+                    logger.debug(f"Error validating address {address} on {blockchain}: {e}")
+        
+        return verified_addresses
+    
+    async def get_project_tvl_data(self, project_name: str) -> Dict[str, Any]:
+        """Get project TVL data from DeFiLlama.
+        
+        Args:
+            project_name: Name of the project
+            
+        Returns:
+            Project TVL data
+        """
+        try:
+            tvl_data = await self.defillama_service.fetch_project_data(project_name)
+            
+            if not tvl_data:
+                return {
+                    "project_name": project_name,
+                    "tvl_found": False,
+                    "tvl_data": None
+                }
+            
+            return {
+                "project_name": project_name,
+                "tvl_found": True,
+                "tvl_data": tvl_data
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting TVL data for {project_name}: {e}")
+            return {
+                "project_name": project_name,
+                "error": str(e),
+                "tvl_found": False,
+                "tvl_data": None
+            }
+    
+    def _extract_addresses_from_text(self, text: str) -> Set[str]:
+        """Extract Ethereum-like addresses from text.
+        
+        Args:
+            text: Text to extract addresses from
+            
+        Returns:
+            Set of unique addresses
+        """
+        # Ethereum address pattern
+        pattern = r'0x[a-fA-F0-9]{40}'
+        
+        # Find all matches
+        addresses = set(re.findall(pattern, text))
+        
+        return addresses
+    
+    def _extract_social_links(self, links: List[str]) -> Dict[str, str]:
+        """Extract social media links from a list of URLs.
+        
+        Args:
+            links: List of URLs
+            
+        Returns:
+            Dictionary of social media links
+        """
+        social_links = {}
+        
+        for link in links:
+            link_lower = link.lower()
+            
+            if "twitter.com" in link_lower or "x.com" in link_lower:
+                social_links["twitter"] = link
+            elif "t.me" in link_lower or "telegram.org" in link_lower:
+                social_links["telegram"] = link
+            elif "discord.com" in link_lower or "discord.gg" in link_lower:
+                social_links["discord"] = link
+            elif "medium.com" in link_lower:
+                social_links["medium"] = link
+            elif "github.com" in link_lower:
+                social_links["github"] = link
+            elif "linkedin.com" in link_lower:
+                social_links["linkedin"] = link
+            elif "youtube.com" in link_lower:
+                social_links["youtube"] = link
+            elif "reddit.com" in link_lower:
+                social_links["reddit"] = link
+            elif "facebook.com" in link_lower:
+                social_links["facebook"] = link
+            elif "instagram.com" in link_lower:
+                social_links["instagram"] = link
+        
+        return social_links
+    
+    def _is_project_website(self, url: str, project_name: str) -> bool:
+        """Check if a URL is likely the project's website.
+        
+        Args:
+            url: URL to check
+            project_name: Project name
+            
+        Returns:
+            True if likely the project website, False otherwise
+        """
+        # Extract domain
+        domain = url.lower()
+        for prefix in ["https://", "http://", "www."]:
+            domain = domain.replace(prefix, "")
+        
+        domain = domain.split("/")[0]  # Remove path
+        
+        # Clean project name for comparison
+        clean_name = project_name.lower().replace(" ", "").replace("-", "").replace("_", "")
+        clean_domain = domain.replace(".", "").replace("-", "").replace("_", "")
+        
+        # Check if project name is in domain
+        if clean_name in clean_domain:
+            return True
+        
+        # Handle special cases for common domains
+        if domain.endswith(".finance") or domain.endswith(".io") or domain.endswith(".org"):
+            # Extract the subdomain
+            subdomain = domain.split(".")[0]
+            if clean_name == subdomain or clean_name in subdomain:
+                return True
+        
+        return False

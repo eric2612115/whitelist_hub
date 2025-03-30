@@ -2,15 +2,16 @@
 name = "whitelist_hub"
 version = "0.1.0"
 description = "An automated blockchain project analysis platform focused on identifying, categorizing, and explaining smart contract functionality, with a particular emphasis on whitelist mechanisms."
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Eric <eric2612115@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = ">=3.10,<=3.13"
 fastapi = "^0.104.0"
 uvicorn = "^0.23.2"
 motor = "^3.3.1"
 pydantic = "^2.4.2"
+pydantic-settings = "^2.8.0"
 celery = "^5.3.4"
 redis = "^5.0.1"
 aiohttp = "^3.8.6"
@@ -26,16 +27,12 @@ pytest-asyncio = "^0.21.1"
 httpx = "^0.25.0"
 openai = "^1.18.0"
 anthropic = "^0.18.0"
-langchain = "^0.1.12"
-langchain-community = "^0.0.29"
-langchain-openai = "^0.0.8"
-langchain-anthropic = "^0.0.1"
+crewai = "^0.30.0"  # Updated to latest version
 google-generativeai = "^0.5.0"
-langchain-google-genai = "^2.1.2"
-langchain-redis = "^0.2.0"
-langchain-mongodb = "^0.6.0"
+websockets = "^14.0"
 
-[tool.poetry.dev-dependencies]
+# 將開發依賴項移至新的 group 結構下
+[tool.poetry.group.dev.dependencies]
 black = "^23.10.0"
 isort = "^5.12.0"
 flake8 = "^6.1.0"
@@ -51,8 +48,3 @@ line-length = 88
 
 [tool.isort]
 profile = "black"
-
-[tool.mypy]
-python_version = "3.9"
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
