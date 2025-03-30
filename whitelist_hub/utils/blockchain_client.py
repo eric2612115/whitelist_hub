@@ -35,12 +35,11 @@ class BlockchainClient:
         }
         
         self.explorer_api_keys = {
-            # These would be configured from environment variables or settings
-            "ethereum": None,
-            "bsc": None,
-            "polygon": None,
-            "arbitrum": None,
-            "optimism": None
+            "ethereum": settings.ETHERSCAN_API_KEY,
+            "bsc": settings.BSCSCAN_API_KEY,
+            "polygon": settings.POLYGONSCAN_API_KEY,
+            "arbitrum": settings.ARBISCAN_API_KEY,
+            "optimism": settings.OPTIMISTICSCAN_API_KEY
         }
         
         # Initialize Web3 providers
@@ -480,8 +479,31 @@ class BlockchainClient:
             block = await self._async_wrapper(w3.eth.get_block, block_number)
             return block.timestamp
         except Exception as e:
-            logger.error(f"Error fetching block timestamp for {blockchain} block {block_number}: {e}")
-            return 0
+            logger.warning(f"Error fetching block timestamp for {blockchain} block {block_number}: {e}")
+            
+            # Fallback to explorer API
+            try:
+                params = {
+                    "module": "block",
+                    "action": "getblockreward",
+                    "blockno": block_number
+                }
+                
+                if self.explorer_api_keys.get(blockchain):
+                    params["apikey"] = self.explorer_api_keys[blockchain]
+                
+                result = await self._make_explorer_api_request(blockchain, params)
+                
+                if result.get("status") == "1" and result.get("result"):
+                    # Extract timestamp from response
+                    timestamp = int(result.get("result", {}).get("timeStamp", 0))
+                    return timestamp
+                else:
+                    logger.error(f"Failed to get block timestamp from explorer: {result.get('message', 'Unknown error')}")
+                    return 0
+            except Exception as e2:
+                logger.error(f"Explorer API fallback failed for timestamp: {e2}")
+                return 0
     
     async def _make_explorer_api_request(self, blockchain: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Make request to blockchain explorer API.

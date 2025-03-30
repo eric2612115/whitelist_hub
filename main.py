@@ -8,12 +8,14 @@ from typing import Dict, Any, Optional
 
 from whitelist_hub.agents.agent_factory import create_agent
 from whitelist_hub.utils.ai_client import AIClient
+from whitelist_hub.utils.langchain_client import LangChainClient
+from whitelist_hub.utils.agent_framework import select_best_framework
 from whitelist_hub.prompts.prompt_manager import PromptManager
 from whitelist_hub.utils.blockchain_client import BlockchainClient
 from whitelist_hub.services.defillama_service import DefiLlamaService
 
 
-async def analyze_project(project_name: str, website: Optional[str] = None, github_url: Optional[str] = None):
+async def analyze_project(project_name: str, website: Optional[str] = None, github_url: Optional[str] = None, framework: str = "custom"):
     """Analyze a blockchain project.
     
     Args:
@@ -25,9 +27,13 @@ async def analyze_project(project_name: str, website: Optional[str] = None, gith
     
     # Create shared services and clients
     ai_client = AIClient()
+    langchain_client = LangChainClient()
     prompt_manager = PromptManager(use_db=False, templates_dir="whitelist_hub/prompts/templates")
     blockchain_client = BlockchainClient()
     defillama_service = DefiLlamaService()
+    
+    # Determine if we should use LangChain for everything
+    use_langchain = framework == "langchain"
     
     # Create agents
     coordinator_agent = create_agent(
@@ -97,18 +103,86 @@ async def analyze_project(project_name: str, website: Optional[str] = None, gith
         # Get contract ABI
         abi = await blockchain_client.fetch_contract_abi(address, blockchain)
         
-        # Analyze ABI
-        abi_analysis, abi_log = await analysis_agent.analyze_contract_abi(
-            contract_address=address,
-            blockchain=blockchain,
-            abi_json=abi
-        )
+        # Choose framework for this task
+        if framework == "auto":
+            task_framework = select_best_framework("abi_analysis", data_size=len(str(abi)), complexity="medium")
+        else:
+            task_framework = framework
         
-        # Detect if proxy
-        proxy_detection, proxy_log = await analysis_agent.detect_proxy_pattern(
-            contract_address=address,
-            blockchain=blockchain
-        )
+        # Analyze ABI using appropriate framework
+        if task_framework == "langchain":
+            print(f"  Using LangChain for ABI analysis of {address}")
+            # Prepare context for LangChain
+            context = {
+                "contract_address": address,
+                "blockchain": blockchain,
+                "abi": json.dumps(abi)[:1000] + "..." if len(json.dumps(abi)) > 1000 else json.dumps(abi)
+            }
+            
+            # Run analysis using LangChain
+            abi_analysis_result = await langchain_client.run_task("abi_analysis", context)
+            
+            # Parse the result
+            from whitelist_hub.utils.agent_framework import parse_agent_output
+            abi_analysis = parse_agent_output(abi_analysis_result, "abi_analysis")
+            
+            # Create a simple log
+            from whitelist_hub.models.analysis_log import AnalysisLog
+            abi_log = AnalysisLog(
+                project_id="",
+                contract_id="",
+                analysis_id=f"langchain_abi_{address}",
+                agent_type="langchain",
+                execution_time_ms=0
+            )
+            
+        else:
+            print(f"  Using custom framework for ABI analysis of {address}")
+            # Use the existing custom agent implementation
+            abi_analysis, abi_log = await analysis_agent.analyze_contract_abi(
+                contract_address=address,
+                blockchain=blockchain,
+                abi_json=abi
+            )
+        
+        # Choose framework for proxy detection
+        if framework == "auto":
+            task_framework = select_best_framework("proxy_detection", complexity="high")
+        else:
+            task_framework = framework
+        
+        # Detect if proxy using appropriate framework
+        if task_framework == "langchain":
+            print(f"  Using LangChain for proxy detection of {address}")
+            # Prepare context for LangChain
+            context = {
+                "contract_address": address,
+                "blockchain": blockchain,
+                "abi_analysis": json.dumps(abi_analysis) if isinstance(abi_analysis, dict) else str(abi_analysis)
+            }
+            
+            # Run analysis using LangChain
+            proxy_result = await langchain_client.run_task("proxy_detection", context)
+            
+            # Parse the result
+            proxy_detection = parse_agent_output(proxy_result, "proxy_detection")
+            
+            # Create a simple log
+            proxy_log = AnalysisLog(
+                project_id="",
+                contract_id="",
+                analysis_id=f"langchain_proxy_{address}",
+                agent_type="langchain",
+                execution_time_ms=0
+            )
+            
+        else:
+            print(f"  Using custom framework for proxy detection of {address}")
+            # Use the existing custom agent implementation
+            proxy_detection, proxy_log = await analysis_agent.detect_proxy_pattern(
+                contract_address=address,
+                blockchain=blockchain
+            )
         
         # Combine analyses
         contract_analysis = {
@@ -120,14 +194,46 @@ async def analyze_project(project_name: str, website: Optional[str] = None, gith
         }
         
         # If whitelist functionality detected, analyze it
-        if any("whitelist" in category.lower() for category in abi_analysis.get("function_categories", {})):
-            whitelist_analysis, whitelist_log = await analysis_agent.analyze_whitelist_mechanism(
-                contract_address=address,
-                contract_data=abi_analysis,
-                blockchain=blockchain
-            )
+        whitelist_detected = False
+        if isinstance(abi_analysis, dict):
+            whitelist_detected = any("whitelist" in category.lower() for category in abi_analysis.get("function_categories", {}))
+        elif hasattr(abi_analysis, "data") and hasattr(abi_analysis.data, "function_categories"):
+            whitelist_detected = any("whitelist" in category.lower() for category in abi_analysis.data.function_categories)
+        
+        if whitelist_detected:
+            # Choose framework for whitelist analysis
+            if framework == "auto":
+                task_framework = select_best_framework("whitelist_analysis", complexity="high")
+            else:
+                task_framework = framework
             
-            contract_analysis["whitelist_analysis"] = whitelist_analysis
+            # Analyze whitelist using appropriate framework
+            if task_framework == "langchain":
+                print(f"  Using LangChain for whitelist analysis of {address}")
+                # Prepare context for LangChain
+                context = {
+                    "contract_address": address,
+                    "blockchain": blockchain,
+                    "contract_data": json.dumps(abi_analysis)[:2000] if isinstance(abi_analysis, dict) else str(abi_analysis)[:2000]
+                }
+                
+                # Run analysis using LangChain
+                whitelist_result = await langchain_client.run_task("whitelist_analysis", context)
+                
+                # Parse the result
+                whitelist_analysis = parse_agent_output(whitelist_result, "whitelist_analysis")
+                contract_analysis["whitelist_analysis"] = whitelist_analysis
+                
+            else:
+                print(f"  Using custom framework for whitelist analysis of {address}")
+                # Use the existing custom agent implementation
+                whitelist_analysis, whitelist_log = await analysis_agent.analyze_whitelist_mechanism(
+                    contract_address=address,
+                    contract_data=abi_analysis,
+                    blockchain=blockchain
+                )
+                
+                contract_analysis["whitelist_analysis"] = whitelist_analysis
         
         contract_analyses.append(contract_analysis)
         
@@ -222,6 +328,8 @@ async def main():
     parser.add_argument("project", help="Project name to analyze")
     parser.add_argument("--website", help="Project website URL")
     parser.add_argument("--github", help="Project GitHub URL")
+    parser.add_argument("--framework", choices=["custom", "langchain", "auto"], default="custom",
+                        help="Agent framework to use: custom, langchain, or auto (will select best for each task)")
     
     args = parser.parse_args()
     
@@ -230,7 +338,7 @@ async def main():
     os.makedirs("output", exist_ok=True)
     
     # Run analysis
-    await analyze_project(args.project, args.website, args.github)
+    await analyze_project(args.project, args.website, args.github, args.framework)
 
 
 if __name__ == "__main__":

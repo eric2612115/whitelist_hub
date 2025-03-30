@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     ARBITRUM_RPC_URL: Optional[str] = None
     OPTIMISM_RPC_URL: Optional[str] = None
     
+    # Blockchain explorer API keys
+    ETHERSCAN_API_KEY: Optional[str] = None
+    BSCSCAN_API_KEY: Optional[str] = None
+    POLYGONSCAN_API_KEY: Optional[str] = None
+    ARBISCAN_API_KEY: Optional[str] = None
+    OPTIMISTICSCAN_API_KEY: Optional[str] = None
+    
     # Security settings
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
     

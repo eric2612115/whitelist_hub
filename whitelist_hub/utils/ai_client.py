@@ -2,17 +2,18 @@
 
 import logging
 import json
-import aiohttp
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
+from openai import AsyncOpenAI
+from anthropic import AsyncAnthropic
 from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 class AIClient:
-    """Client for AI model APIs."""
+    """Client for AI model APIs using official client libraries."""
     
     def __init__(self, provider: str = None, api_key: str = None, max_retries: int = 3, timeout: int = 60):
         """Initialize AI client.
@@ -27,6 +28,21 @@ class AIClient:
         self.api_key = api_key or self._get_api_key()
         self.max_retries = max_retries
         self.timeout = timeout
+        self.system_prompt = "You are an expert blockchain analyst agent for the Whitelist Hub system."
+        
+        # Initialize clients
+        if self.provider == "openai":
+            self.client = AsyncOpenAI(
+                api_key=self.api_key,
+                timeout=timeout,
+                max_retries=max_retries
+            )
+        elif self.provider == "anthropic":
+            self.client = AsyncAnthropic(
+                api_key=self.api_key
+            )
+        else:
+            raise ValueError(f"Unsupported AI provider: {self.provider}")
     
     def _get_api_key(self) -> str:
         """Get API key for the selected provider.
@@ -35,8 +51,12 @@ class AIClient:
             API key
         """
         if self.provider == "openai":
+            if not settings.OPENAI_API_KEY:
+                raise ValueError("OpenAI API key not found in settings")
             return settings.OPENAI_API_KEY
         elif self.provider == "anthropic":
+            if not settings.ANTHROPIC_API_KEY:
+                raise ValueError("Anthropic API key not found in settings")
             return settings.ANTHROPIC_API_KEY
         else:
             raise ValueError(f"Unsupported AI provider: {self.provider}")
@@ -57,14 +77,29 @@ class AIClient:
             model: Specific model to use (optional)
             
         Returns:
-            Response from AI model
+            Response from AI model in a standardized format
         """
-        if self.provider == "openai":
-            return await self._get_openai_completion(prompt, temperature, max_tokens, model)
-        elif self.provider == "anthropic":
-            return await self._get_anthropic_completion(prompt, temperature, max_tokens, model)
-        else:
-            raise ValueError(f"Unsupported AI provider: {self.provider}")
+        retries = 0
+        last_error = None
+        
+        while retries < self.max_retries:
+            try:
+                if self.provider == "openai":
+                    return await self._get_openai_completion(prompt, temperature, max_tokens, model)
+                elif self.provider == "anthropic":
+                    return await self._get_anthropic_completion(prompt, temperature, max_tokens, model)
+                
+            except Exception as e:
+                last_error = e
+                logger.warning(f"API request attempt {retries + 1} failed: {str(e)}")
+                
+                # Implement exponential backoff
+                await asyncio.sleep(2 ** retries)
+                retries += 1
+        
+        # If we get here, all retries failed
+        logger.error(f"All {self.max_retries} API request attempts failed")
+        raise last_error or RuntimeError("API request failed with unknown error")
     
     async def _get_openai_completion(
         self, 
@@ -84,24 +119,32 @@ class AIClient:
         Returns:
             Response from OpenAI
         """
-        url = "https://api.openai.com/v1/chat/completions"
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
-        }
-        
-        data = {
-            "model": model or "gpt-4-turbo-preview",
-            "messages": [
-                {"role": "system", "content": "You are an expert blockchain analyst agent for the Whitelist Hub system."},
+        response = await self.client.chat.completions.create(
+            model=model or "gpt-4-turbo-preview",
+            messages=[
+                {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": prompt}
             ],
-            "temperature": temperature,
-            "max_tokens": max_tokens
-        }
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
         
-        return await self._make_api_request(url, headers, data)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": response.choices[0].message.content,
+                        "role": "assistant"
+                    },
+                    "finish_reason": response.choices[0].finish_reason
+                }
+            ],
+            "usage": {
+                "total_tokens": response.usage.total_tokens,
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens
+            }
+        }
     
     async def _get_anthropic_completion(
         self, 
@@ -121,96 +164,30 @@ class AIClient:
         Returns:
             Response formatted to match OpenAI structure
         """
-        url = "https://api.anthropic.com/v1/messages"
-        
-        headers = {
-            "Content-Type": "application/json",
-            "X-API-Key": self.api_key,
-            "anthropic-version": "2023-06-01"
-        }
-        
-        system_prompt = "You are an expert blockchain analyst agent for the Whitelist Hub system."
-        
-        data = {
-            "model": model or "claude-3-opus-20240229",
-            "system": system_prompt,
-            "messages": [
+        response = await self.client.messages.create(
+            model=model or "claude-3-opus-20240229",
+            system=self.system_prompt,
+            messages=[
                 {"role": "user", "content": prompt}
             ],
-            "temperature": temperature,
-            "max_tokens": max_tokens
-        }
-        
-        response = await self._make_api_request(url, headers, data)
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
         
         # Convert Anthropic response format to match OpenAI format for consistency
-        if "content" in response:
-            return {
-                "choices": [
-                    {
-                        "message": {
-                            "content": response["content"][0]["text"],
-                            "role": "assistant"
-                        },
-                        "finish_reason": response.get("stop_reason", "stop")
-                    }
-                ],
-                "usage": {
-                    "total_tokens": response.get("usage", {}).get("input_tokens", 0) + 
-                                   response.get("usage", {}).get("output_tokens", 0),
-                    "prompt_tokens": response.get("usage", {}).get("input_tokens", 0),
-                    "completion_tokens": response.get("usage", {}).get("output_tokens", 0)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": response.content[0].text,
+                        "role": "assistant"
+                    },
+                    "finish_reason": response.stop_reason
                 }
+            ],
+            "usage": {
+                "total_tokens": response.usage.input_tokens + response.usage.output_tokens,
+                "prompt_tokens": response.usage.input_tokens,
+                "completion_tokens": response.usage.output_tokens
             }
-        
-        # If response format is unexpected, return as is
-        return response
-    
-    async def _make_api_request(self, url: str, headers: Dict[str, str], data: Dict[str, Any]) -> Dict[str, Any]:
-        """Make API request with retries.
-        
-        Args:
-            url: API URL
-            headers: Request headers
-            data: Request data
-            
-        Returns:
-            API response
-        """
-        retries = 0
-        last_error = None
-        
-        while retries < self.max_retries:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        url, 
-                        headers=headers, 
-                        json=data, 
-                        timeout=aiohttp.ClientTimeout(total=self.timeout)
-                    ) as response:
-                        response_json = await response.json()
-                        
-                        if response.status != 200:
-                            error_msg = response_json.get("error", {}).get("message", str(response_json))
-                            logger.error(f"API request failed: {error_msg}")
-                            last_error = ValueError(f"API request failed: {error_msg}")
-                            
-                            # Implement exponential backoff
-                            await asyncio.sleep(2 ** retries)
-                            retries += 1
-                            continue
-                        
-                        return response_json
-            
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                last_error = e
-                logger.warning(f"API request attempt {retries + 1} failed: {str(e)}")
-                
-                # Implement exponential backoff
-                await asyncio.sleep(2 ** retries)
-                retries += 1
-        
-        # If we get here, all retries failed
-        logger.error(f"All {self.max_retries} API request attempts failed")
-        raise last_error or RuntimeError("API request failed with unknown error")
+        }
