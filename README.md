@@ -1,37 +1,39 @@
 # Whitelist Hub
 
-An automated blockchain project analysis platform focused on identifying, categorizing, and explaining smart contract functionality, with a particular emphasis on whitelist mechanisms.
+An intelligent blockchain project analysis platform with a modular agent-based architecture, focused on identifying, categorizing, and explaining smart contract functionality, with a particular emphasis on whitelist mechanisms.
 
 ## Features
 
-- Automated smart contract discovery and analysis
-- Whitelist mechanism detection and classification
-- Contract function categorization
-- Proxy contract detection
-- User interaction flow generation
-- Security assessment
-- Advanced AI agent framework based on CrewAI for collaborative analysis
-- **Multi-model AI support** (Anthropic Claude, Google Gemini, Google Vertex)
-- **Advanced web crawling** with Firecrawl.dev integration
-- **MongoDB integration** for persistent data storage
-- **FastAPI-based backend** with WebSockets for real-time analysis updates
+- **Modular Agent Framework** - Flexible and extensible agent architecture for blockchain analysis
+- **Multi-model AI Support** - Integration with major AI providers (Gemini, Claude, OpenAI)
+- **Real-time Analysis** - WebSocket support for real-time analysis updates
+- **Workflow Engine** - Task-based workflows with dependency management
+- **REST and WebSocket APIs** - Modern API design for integration with other systems
+- **Self-healing Design** - Automatic recovery from failures and comprehensive error handling
+- **Observability** - Event-based system for monitoring and telemetry
 
 ## Architecture
 
-The system is built with a modular architecture based on CrewAI:
+The system is built with a modular architecture based on specialized AI agents:
 
-- AI Agent Framework with specialized crew members:
-  - **Coordinator Agent**: Leads the analysis workflow and assigns tasks
-  - **Crawler Agent**: Gathers project information from various sources using Firecrawl
-  - **Analysis Agent**: Performs technical analysis of smart contracts
-  - **Verification Agent**: Validates and enhances analysis results
+- **Agent Framework**:
+  - **Agent Base** - Abstract interface for all agents with common functionality
+  - **LLM Agent** - Base implementation for language model integration
+  - **Coordinator Agent** - Plans and orchestrates the analysis workflow
+  - **Crawler Agent** - Gathers project information from various sources
+  - **Analyzer Agent** - Examines contract code and identifies whitelist mechanisms
+  - **Verifier Agent** - Validates and cross-checks analysis results
 
-- Core Services:
-  - **MongoDB Service**: Manages database interactions for persistent storage
-  - **Blockchain Client**: Handles blockchain interactions
-  - **AI Client**: Manages communication with AI models (Claude, Gemini, Vertex)
-  - **Prompt Manager**: Handles prompts with version control
-  - **Firecrawl Client**: Advanced web crawling and data extraction
+- **Core Services**:
+  - **Context Management** - Maintains state and messaging between agents
+  - **Task Management** - Tracks task execution and dependencies
+  - **Workflow Engine** - Orchestrates complex multi-agent workflows
+  - **Event System** - Provides observability and tracking
+
+- **API Layer**:
+  - **REST API** - For command-driven interactions
+  - **WebSocket API** - For real-time analysis updates
+  - **Session Management** - For persistent analysis sessions
 
 ## Getting Started
 
@@ -40,13 +42,9 @@ The system is built with a modular architecture based on CrewAI:
 - Python 3.10 or higher
 - Poetry for dependency management
 - Access to AI model APIs (at least one of the following):
-  - Anthropic Claude API
-  - Google Gemini API
-  - Google Vertex API
-- Firecrawl.dev API key for enhanced web crawling
-- MongoDB instance (local or remote)
-- (Optional) Redis for caching and task queue
-- (Optional) Access to blockchain node RPC endpoints
+  - Google Gemini API key
+  - Anthropic Claude API key
+  - OpenAI API key
 
 ### Installation
 
@@ -61,200 +59,162 @@ The system is built with a modular architecture based on CrewAI:
    poetry install
    ```
 
-3. Set up environment variables (create a `.env` file):
+3. Create a `.env` file with your API keys:
    ```
-   # AI API Keys (at least one is required)
+   GEMINI_API_KEY=your_gemini_api_key
    ANTHROPIC_API_KEY=your_anthropic_api_key
-   GEMINI_API_KEY=your_gemini_api_key
-   AI_MODEL_PROVIDER=anthropic  # or gemini, vertex
-   
-   # External services
-   FIRECRAWL_API_KEY=your_firecrawl_api_key
-   
-   # MongoDB connection
-   MONGODB_URL=mongodb://localhost:27017
-   MONGODB_DB_NAME=whitelist_hub
-   
-   # Optional: Redis configuration (for caching/queue)
-   REDIS_HOST=localhost
-   REDIS_PORT=6379
-   
-   # Blockchain RPC URLs (optional)
-   ETHEREUM_RPC_URL=https://mainnet.infura.io/v3/your_key
-   BSC_RPC_URL=https://bsc-dataseed.binance.org/
-   POLYGON_RPC_URL=https://polygon-rpc.com/
+   OPENAI_API_KEY=your_openai_api_key
    ```
 
-### Using Google Gemini
+### Basic Usage
 
-To use Google Gemini as your AI model provider:
+#### Simple Command-line Interface
 
-1. Set the following in your `.env` file:
-   ```
-   GEMINI_API_KEY=your_gemini_api_key
-   AI_MODEL_PROVIDER=gemini
-   ```
+Try the simple CLI application to experiment with the agents:
 
-2. Run the example script to test Gemini integration:
-   ```
-   poetry run python gemini_example.py
-   ```
+```bash
+poetry run python simple_app.py
+```
 
-3. Default models:
-   - The system uses `gemini-2.0-flash-001` as the default model for standard analysis tasks
-   - You can specify different models by configuring them in your prompts or API calls
-
-Google Gemini offers excellent capabilities for code analysis and whitelist mechanism detection, with fast response times and strong technical understanding of blockchain concepts.
-
-### Usage
+This interactive application allows you to:
+- Analyze blockchain projects
+- Analyze individual smart contracts
+- Chat directly with coordinator or analyzer agents
 
 #### API Server
 
-Start the API server:
+Run the API server for web-based access:
 
-```
+```bash
 poetry run python app.py
 ```
 
-The API will be available at http://localhost:8000
+This starts a FastAPI server on http://localhost:8000 with:
+- API documentation at http://localhost:8000/docs
+- REST endpoints for analysis sessions
+- WebSocket endpoint for real-time updates
 
-API Documentation is available at http://localhost:8000/docs
+#### Command-line Analysis
 
-#### Interactive Analysis through API
+Analyze a project directly from the command line:
 
-The API provides interactive project analysis through both REST API and WebSockets:
+```bash
+poetry run python main.py --project "Aave" --website "https://aave.com" --github "https://github.com/aave"
+```
 
-1. Create a session:
-   ```
-   POST /api/sessions
-   ```
+Analyze a specific contract:
 
-2. Start a project analysis:
-   ```
-   POST /api/sessions/{session_id}/projects
-   {
-     "project_name": "AAVE",
-     "website": "https://aave.com",
-     "github_url": "https://github.com/aave"
-   }
-   ```
-
-3. Send messages to interact with the analysis:
-   ```
-   POST /api/sessions/{session_id}/messages
-   {
-     "text": "Tell me about the whitelist mechanisms in this project"
-   }
-   ```
-
-4. Connect via WebSocket for real-time updates:
-   ```
-   ws://localhost:8000/ws/{session_id}
-   ```
-
-The results will be saved in the MongoDB database and in the `output/` directory with the following files:
-- `Project Name_analysis_result.json`: Final analysis results
-- `Project Name_crawl_log.json`: Log of the crawling process
-- `Project Name_plan_log.json`: Analysis plan created by the coordinator
-- `Project Name_synthesis_log.json`: Log of the final synthesis process
-- `{blockchain}_{address}_analysis_log.json`: Individual contract analysis logs
-- `{blockchain}_{address}_verification_log.json`: Verification logs for contract analysis
+```bash
+poetry run python main.py --contract "0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9" --blockchain "ethereum"
+```
 
 ## Project Structure
 
 ```
 whitelist_hub/
-├── whitelist_hub/            # Main package
-│   ├── agents/               # AI agent framework
-│   │   ├── crawler/          # Crawler agent components
-│   │   ├── analyzer/         # Analysis agent components
-│   │   ├── base_crew.py      # Base crew implementation
-│   │   ├── coordinator.py    # Coordinator agent
-│   │   ├── verification.py   # Verification agent
-│   │   └── crew_factory.py   # Factory for creating agent crews
-│   ├── api/                  # API endpoints
-│   │   ├── api.py            # Main API implementation
-│   │   ├── connection_manager.py # WebSocket connection manager
-│   │   └── project_analysis_service.py # Analysis service
-│   ├── core/                 # Core functionality
-│   │   └── config/           # Configuration
-│   ├── db/                   # Database integration
-│   │   └── mongodb.py        # MongoDB client implementation
-│   ├── models/               # Data models
-│   ├── prompts/              # Prompt templates
-│   │   └── templates/        # Prompt template files
-│   ├── services/             # External services
-│   │   └── defillama_service.py # DeFiLlama integration
-│   └── utils/                # Utility functions
-│       ├── ai_client.py      # AI model client
-│       ├── blockchain_client.py # Blockchain client
-│       ├── firecrawl_client.py # Firecrawl client
-│       └── prompt_utils.py   # Prompt utilities
-├── tests/                    # Test suite
-├── main.py                   # Entry point
-├── app.py                    # FastAPI server
-├── gemini_example.py         # Google Gemini example script
-├── pyproject.toml            # Poetry configuration
-└── README.md                 # This file
+├── agent_framework/       # Core agent system
+│   ├── agent.py           # Base Agent definition
+│   ├── context.py         # Execution context model
+│   ├── registry.py        # Agent registration system
+│   ├── task.py            # Task definition and tracking
+│   ├── tools.py           # Tool system for agents
+│   ├── workflow.py        # Workflow orchestration
+│   └── agents/            # Specific agent implementations
+│       ├── llm_agent.py           # LLM integration
+│       ├── coordinator_agent.py   # Analysis coordination
+│       ├── crawler_agent.py       # Data gathering
+│       ├── analyzer_agent.py      # Contract analysis
+│       └── verifier_agent.py      # Results verification
+├── api/                   # API layer
+│   ├── api.py             # FastAPI implementation
+│   ├── connection_manager.py  # WebSocket management
+│   └── session_manager.py     # Analysis session management
+├── services/              # External service integrations
+│   └── ai_client.py       # AI model provider integration
+├── utils/                 # Utility modules
+│   ├── exceptions.py      # Custom exceptions
+│   ├── observability.py   # Event tracking and telemetry
+│   └── retryable.py       # Retry logic and fault tolerance
+├── workflows/             # Predefined workflows
+│   └── project_analysis_workflow.py  # Project analysis configuration
+├── app.py                 # API server entry point
+├── main.py                # CLI entry point
+└── simple_app.py          # Interactive example application
 ```
-
-## Key Differences from Previous Version
-
-- Replaced LangChain with CrewAI for improved agent collaboration
-- Focused on Anthropic Claude, Google Gemini, and Google Vertex as the primary LLM providers
-- Direct integration with MongoDB instead of using langchain-mongodb
-- Enhanced real-time analysis through WebSockets
-- Simplified dependency management with fewer version conflicts
-- Restructured agent architecture to follow CrewAI's crew-based approach
 
 ## AI Model Comparison
 
 The system supports multiple AI models, each with different strengths:
 
 ### Google Gemini
-- **Strengths**: Fast code analysis, excellent technical understanding of blockchain concepts, cost-effective for large-scale analysis
+- **Strengths**: Fast code analysis, excellent technical understanding of blockchain concepts
 - **Best for**: Rapid contract analysis, detecting complex whitelist patterns
-- **Default model**: gemini-2.0-flash-001 (fast analysis with good accuracy)
-- **Alternative models**: gemini-2.0-pro-001 (deeper analysis with higher accuracy)
+- **Default model**: gemini-2.0-pro-001 (good balance of speed and accuracy)
 
 ### Anthropic Claude
-- **Strengths**: Detailed explanations, nuanced understanding of contract interactions, excellent reasoning
+- **Strengths**: Detailed explanations, nuanced understanding of contract interactions
 - **Best for**: In-depth security analysis, complex pattern detection
-- **Default model**: claude-3-opus-20240229 (comprehensive analysis with high accuracy)
-- **Alternative models**: claude-3-haiku-20240307 (faster analysis with reasonable accuracy)
+- **Default model**: claude-3-opus-20240229 (high accuracy) and claude-3-haiku-20240307 (faster responses)
 
 ### Model Selection
-You can switch between models by changing the `AI_MODEL_PROVIDER` environment variable. The system will use the specified provider for all analyses. For specific tasks requiring a different provider, you can create a custom `AIClient` instance with the desired provider.
+You can switch between models by setting the `--model` parameter when using the CLI or by choosing the model in the interactive app.
 
 ## Extending the System
 
 ### Creating New Agent Types
 
-1. Define a new agent class in the appropriate directory
-2. Update the crew factory to include your new agent type
-3. Configure the agent's tasks and responsibilities in the main crew
+1. Create a new class that extends `LLMAgent` or directly from `Agent`
+2. Register it with the `@register_agent` decorator
+3. Add any specialized methods needed for your agent's functionality
 
-### Adding New AI Models
+Example:
+```python
+from whitelist_hub.agent_framework.agents.llm_agent import LLMAgent, LLMAgentConfig
+from whitelist_hub.agent_framework.registry import register_agent
 
-1. Update the AIClient class to support the new model
-2. Add the necessary configuration to settings.py
-3. Implement the appropriate client methods
+@register_agent("my_agent")
+class MySpecialAgent(LLMAgent):
+    # Agent implementation
+```
 
-### Adding New External Services
+### Creating Custom Tools
 
-1. Create a new client class for the service
-2. Implement the necessary API methods
-3. Update the relevant agent to use the new service
+1. Create a new class that extends `Tool`
+2. Register it with the `@register_tool` decorator
+3. Implement the `execute` method
 
-### Adding New Prompt Templates
+Example:
+```python
+from whitelist_hub.agent_framework.tools import Tool, register_tool
 
-1. Create new template files in `prompts/templates/`
-2. Register templates in the PromptManager
+@register_tool
+class MyCustomTool(Tool):
+    name = "my_custom_tool"
+    description = "Performs a specialized function"
+    
+    async def execute(self, parameters):
+        # Tool implementation
+```
 
-### Supporting New Blockchains
+### Creating Custom Workflows
 
-1. Add new RPC URLs in the configuration
-2. Update blockchain client to support the new chain
+Use the `WorkflowConfig` and `TaskConfig` classes to define new workflows:
+
+```python
+from whitelist_hub.agent_framework.workflow import Workflow, WorkflowConfig
+from whitelist_hub.agent_framework.task import TaskConfig
+
+workflow_config = WorkflowConfig(
+    name="My Custom Workflow",
+    description="Performs a specialized analysis",
+    tasks=[
+        TaskConfig(name="task1", agent_name="coordinator", ...),
+        TaskConfig(name="task2", agent_name="analyzer", ...)
+    ]
+)
+
+workflow = Workflow(config=workflow_config)
+```
 
 ## License
 

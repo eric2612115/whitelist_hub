@@ -2,7 +2,11 @@
 
 import uvicorn
 import logging
-from whitelist_hub.api.api import app
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -14,12 +18,21 @@ logging.basicConfig(
     ]
 )
 
+# Import the API application
+from whitelist_hub.api import create_app
+
+# Create the FastAPI app
+app = create_app()
+
 if __name__ == "__main__":
+    # Get port from environment variable or use default
+    port = int(os.getenv("PORT", 8000))
+    
     # Run the server
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         reload=True,
         log_level="info"
     )

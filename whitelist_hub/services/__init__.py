@@ -1,5 +1,11 @@
-"""Service modules for the Whitelist Hub."""
+"""
+Services package for Whitelist Hub.
 
-from .defillama_service import DefiLlamaService
+This package contains service clients for external APIs and services.
+"""
 
-__all__ = ["DefiLlamaService"]
+from .ai_client import AIClient, AIClientFactory, AIModelProvider, AIModelResponse
+
+__all__ = [
+    'AIClient', 'AIClientFactory', 'AIModelProvider', 'AIModelResponse'
+]

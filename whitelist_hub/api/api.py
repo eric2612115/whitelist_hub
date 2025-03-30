@@ -1,270 +1,373 @@
-"""API endpoints for Whitelist Hub."""
+"""
+FastAPI implementation for Whitelist Hub.
 
-import os
-import logging
+This module provides the FastAPI application with REST and WebSocket endpoints
+for interacting with the Whitelist Hub system.
+"""
+
 import asyncio
-import uuid
-from typing import Dict, List, Any, Optional
+import json
+import logging
+import os
 from datetime import datetime
+from typing import Dict, List, Optional, Any, Union
+import uuid
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Query, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from .connection_manager import ProjectAnalysisManager
-from .project_analysis_service import ProjectAnalysisService
-from ..models.message import MessageType, MessageStructure
-from ..db.mongodb import connect_to_mongo, close_mongo_connection
-from ..core.config import settings
+from .connection_manager import get_connection_manager, WebSocketMessage
+from .session_manager import get_session_manager, Session
+from ..agent_framework.context import Context
+from ..agent_framework.workflow import WorkflowConfig, Workflow
+from ..utils.observability import LoggingEventListener
+from ..services.ai_client import AIModelProvider
 
 logger = logging.getLogger(__name__)
 
-# Create FastAPI app
-app = FastAPI(
-    title="Whitelist Hub API",
-    description="API for blockchain project analysis with focus on whitelist mechanisms",
-    version="0.1.0"
-)
 
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Input and output models
+class CreateSessionRequest(BaseModel):
+    """Request model for creating a session."""
+    user_id: Optional[str] = None
 
-# Initialize connection manager
-connection_manager = ProjectAnalysisManager()
 
-# Define API models
-class ProjectStartRequest(BaseModel):
-    """Request model for starting a project analysis."""
-    
-    project_name: str = Field(..., description="Project name to analyze")
-    website: Optional[str] = Field(None, description="Project website URL")
-    github_url: Optional[str] = Field(None, description="Project GitHub URL")
+class SessionResponse(BaseModel):
+    """Response model for session information."""
+    id: str
+    created_at: datetime
+    updated_at: datetime
+    user_id: Optional[str] = None
+    project_name: Optional[str] = None
+    status: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
 
 class MessageRequest(BaseModel):
     """Request model for sending a message."""
+    text: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MessageResponse(BaseModel):
+    """Response model for a message."""
+    id: str
+    text: str
+    timestamp: datetime
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ProjectAnalysisRequest(BaseModel):
+    """Request model for starting a project analysis."""
+    project_name: str
+    website: Optional[str] = None
+    github_url: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowStatusResponse(BaseModel):
+    """Response model for workflow status."""
+    id: str
+    status: str
+    progress: float
+    tasks_total: int
+    tasks_completed: int
+    tasks_failed: int
+    started_at: Optional[datetime] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+def create_app() -> FastAPI:
+    """Create the FastAPI application.
     
-    text: str = Field(..., description="Message text")
-
-class ContractAnalysisRequest(BaseModel):
-    """Request model for analyzing a contract."""
-    
-    contract_address: str = Field(..., description="Contract address to analyze")
-    blockchain: str = Field("ethereum", description="Blockchain name (e.g., ethereum, bsc)")
-
-class SessionResponse(BaseModel):
-    """Response model for session creation."""
-    
-    session_id: str = Field(..., description="Session ID")
-    created_at: str = Field(..., description="Session creation timestamp")
-
-# Database connection events
-@app.on_event("startup")
-async def startup_db_client():
-    await connect_to_mongo()
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    await close_mongo_connection()
-
-# Dependency for getting project analysis service
-async def get_project_analysis_service() -> ProjectAnalysisService:
-    """Dependency for getting project analysis service."""
-    return await ProjectAnalysisService.create()
-
-# API Routes
-@app.get("/", tags=["general"])
-async def root():
-    """Root endpoint for health check."""
-    return {
-        "status": "healthy",
-        "version": "0.1.0",
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.post("/api/sessions", response_model=SessionResponse, tags=["session"])
-async def create_session():
-    """Create a new analysis session."""
-    session_id = str(uuid.uuid4())
-    connection_manager.session_data[session_id] = {
-        "messages": [],
-        "created_at": datetime.now().isoformat(),
-        "last_active": datetime.now().isoformat(),
-        "project_data": None,
-        "analysis_status": "not_started"
-    }
-    
-    return {
-        "session_id": session_id,
-        "created_at": connection_manager.session_data[session_id]["created_at"]
-    }
-
-@app.get("/api/sessions/{session_id}", tags=["session"])
-async def get_session(session_id: str):
-    """Get session data."""
-    if session_id not in connection_manager.session_data:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    return connection_manager.session_data[session_id]
-
-@app.post("/api/sessions/{session_id}/projects", tags=["project"])
-async def start_project_analysis(
-    session_id: str,
-    project_request: ProjectStartRequest,
-    background_tasks: BackgroundTasks,
-    service: ProjectAnalysisService = Depends(get_project_analysis_service)
-):
-    """Start a new project analysis."""
-    if session_id not in connection_manager.session_data:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    # Update session data
-    connection_manager.update_session_data(session_id, {
-        "project_name": project_request.project_name,
-        "website": project_request.website,
-        "github_url": project_request.github_url,
-        "analysis_status": "in_progress"
-    })
-    
-    # Define message callback
-    async def message_callback(message):
-        await connection_manager.send_message(session_id, message)
-    
-    # Start analysis in background
-    background_tasks.add_task(
-        service.analyze_project,
-        project_name=project_request.project_name,
-        website=project_request.website,
-        github_url=project_request.github_url,
-        session_id=session_id,
-        message_callback=message_callback
+    Returns:
+        The FastAPI application
+    """
+    app = FastAPI(
+        title="Whitelist Hub API",
+        description="API for Whitelist Hub blockchain project analysis",
+        version="0.1.0"
     )
     
-    return {
-        "status": "started",
-        "session_id": session_id,
-        "project_name": project_request.project_name,
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.post("/api/sessions/{session_id}/contracts", tags=["contract"])
-async def analyze_contract(
-    session_id: str,
-    contract_request: ContractAnalysisRequest,
-    background_tasks: BackgroundTasks,
-    service: ProjectAnalysisService = Depends(get_project_analysis_service)
-):
-    """Analyze a specific contract."""
-    if session_id not in connection_manager.session_data:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    # Define message callback
-    async def message_callback(message):
-        await connection_manager.send_message(session_id, message)
-    
-    # Start analysis in background
-    background_tasks.add_task(
-        service.analyze_contract,
-        contract_address=contract_request.contract_address,
-        blockchain=contract_request.blockchain,
-        session_id=session_id,
-        message_callback=message_callback
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
     
-    return {
-        "status": "started",
-        "session_id": session_id,
-        "contract_address": contract_request.contract_address,
-        "blockchain": contract_request.blockchain,
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.post("/api/sessions/{session_id}/messages", tags=["message"])
-async def send_message(
-    session_id: str,
-    message_request: MessageRequest,
-    service: ProjectAnalysisService = Depends(get_project_analysis_service)
-):
-    """Send a message in a session."""
-    if session_id not in connection_manager.session_data:
-        raise HTTPException(status_code=404, detail="Session not found")
+    # Set up event listeners
+    logging_listener = LoggingEventListener()
+    session_manager = get_session_manager()
+    session_manager.add_global_listener(logging_listener)
     
-    # Add user message to session
-    user_message = MessageStructure.format_message("user", message_request.text)
-    await connection_manager.save_message(session_id, "user", message_request.text)
+    connection_manager = get_connection_manager()
+    connection_manager.add_global_listener(logging_listener)
     
-    # Process message using AI
-    thinking_message = MessageStructure.format_thinking()
-    await connection_manager.send_message(session_id, thinking_message)
     
-    # Get response from AI
-    response_text = await service.process_message(
-        session_id=session_id,
-        message=message_request.text
-    )
+    # Session endpoints
+    @app.post("/api/sessions", response_model=SessionResponse)
+    async def create_session(request: CreateSessionRequest):
+        """Create a new session."""
+        session = await session_manager.create_session(request.user_id)
+        return SessionResponse(
+            id=session.id,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            user_id=session.user_id,
+            project_name=session.project_name,
+            status=session.status,
+            metadata=session.metadata
+        )
     
-    # Send AI response
-    assistant_message = MessageStructure.format_ai_response(response_text)
-    await connection_manager.save_message(session_id, "assistant", response_text)
-    await connection_manager.send_message(session_id, assistant_message)
     
-    return assistant_message
-
-@app.get("/api/sessions/{session_id}/messages", tags=["message"])
-async def get_messages(session_id: str):
-    """Get all messages in a session."""
-    if session_id not in connection_manager.session_data:
-        raise HTTPException(status_code=404, detail="Session not found")
+    @app.get("/api/sessions/{session_id}", response_model=SessionResponse)
+    async def get_session(session_id: str):
+        """Get session information."""
+        session = await session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        return SessionResponse(
+            id=session.id,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            user_id=session.user_id,
+            project_name=session.project_name,
+            status=session.status,
+            metadata=session.metadata
+        )
     
-    return {
-        "messages": connection_manager.get_messages(session_id)
-    }
-
-@app.get("/api/projects/{project_name}", tags=["project"])
-async def get_project_data(
-    project_name: str,
-    service: ProjectAnalysisService = Depends(get_project_analysis_service)
-):
-    """Get project data by name."""
-    project_data = await service.get_project_data(project_name)
-    if not project_data:
-        raise HTTPException(status_code=404, detail="Project not found")
     
-    return project_data
-
-@app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    """WebSocket endpoint for real-time communication."""
-    # Connect client
-    success = await connection_manager.connect(session_id, websocket)
-    if not success:
-        return
+    @app.delete("/api/sessions/{session_id}")
+    async def delete_session(session_id: str):
+        """Delete a session."""
+        success = await session_manager.delete_session(session_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        return {"status": "success", "message": f"Session {session_id} deleted"}
     
-    # Send welcome message
-    welcome_message = MessageStructure.format_system(
-        "Welcome to Whitelist Hub! You can start by analyzing a project or a specific contract."
-    )
-    await connection_manager.send_message(session_id, welcome_message)
     
-    try:
-        # Handle WebSocket messages
-        while True:
-            data = await websocket.receive_text()
-            await connection_manager.handle_client_message(session_id, data)
-    except WebSocketDisconnect:
-        connection_manager.disconnect(session_id)
-    except Exception as e:
-        logger.exception(f"Error in WebSocket handler: {e}")
+    # Message endpoints
+    @app.post("/api/sessions/{session_id}/messages", response_model=MessageResponse)
+    async def send_message(session_id: str, request: MessageRequest):
+        """Send a message in a session."""
+        session = await session_manager.get_or_create_session(session_id)
+        
+        response = await session_manager.handle_message(session_id, request.text)
+        
+        # Create response
+        message_id = str(uuid.uuid4())
+        timestamp = datetime.utcnow()
+        
+        # Broadcast the message and response to websocket clients
+        connection_manager = get_connection_manager()
+        await connection_manager.broadcast(
+            WebSocketMessage(
+                type="message",
+                content={
+                    "id": message_id,
+                    "text": request.text,
+                    "sender": "user",
+                    "timestamp": timestamp.isoformat()
+                },
+                session_id=session_id
+            ),
+            session_id
+        )
+        
+        await connection_manager.broadcast(
+            WebSocketMessage(
+                type="message",
+                content={
+                    "id": str(uuid.uuid4()),
+                    "text": response,
+                    "sender": "assistant",
+                    "timestamp": datetime.utcnow().isoformat()
+                },
+                session_id=session_id
+            ),
+            session_id
+        )
+        
+        return MessageResponse(
+            id=message_id,
+            text=response,
+            timestamp=timestamp,
+            metadata={"session_id": session_id}
+        )
+    
+    
+    # Project analysis endpoints
+    @app.post("/api/sessions/{session_id}/projects", response_model=WorkflowStatusResponse)
+    async def start_project_analysis(session_id: str, request: ProjectAnalysisRequest):
+        """Start a project analysis."""
+        session = await session_manager.get_or_create_session(session_id)
+        
+        # Update session with project info
+        session.project_name = request.project_name
+        session.metadata["website"] = request.website
+        session.metadata["github_url"] = request.github_url
+        await session_manager.update_session(session)
+        
+        # Create workflow for project analysis
+        from ..workflows.project_analysis_workflow import create_project_analysis_workflow
+        
+        workflow = create_project_analysis_workflow(
+            project_name=request.project_name,
+            website=request.website,
+            github_url=request.github_url,
+            ai_model_provider=AIModelProvider.GEMINI,  # Default to Gemini for better code analysis
+            metadata=request.metadata
+        )
+        
+        # Start the workflow
+        workflow_id = await session_manager.start_workflow(session_id, workflow)
+        if not workflow_id:
+            raise HTTPException(status_code=500, detail="Failed to start workflow")
+        
+        # Return initial status
+        return WorkflowStatusResponse(
+            id=workflow_id,
+            status="running",
+            progress=0.0,
+            tasks_total=len(workflow.tasks),
+            tasks_completed=0,
+            tasks_failed=0,
+            started_at=datetime.utcnow(),
+            metadata={"project_name": request.project_name}
+        )
+    
+    
+    @app.get("/api/sessions/{session_id}/workflows/current", response_model=Optional[WorkflowStatusResponse])
+    async def get_current_workflow_status(session_id: str):
+        """Get the status of the current workflow."""
+        session = await session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        if not session.active_workflow:
+            return None
+        
+        workflow = session.active_workflow
+        completed_tasks = sum(1 for task in workflow.tasks.values() if task.is_completed())
+        failed_tasks = sum(1 for task in workflow.tasks.values() if task.state == "failed")
+        
+        progress = 0.0
+        if len(workflow.tasks) > 0:
+            progress = completed_tasks / len(workflow.tasks)
+        
+        return WorkflowStatusResponse(
+            id=workflow.id,
+            status=workflow.state,
+            progress=progress,
+            tasks_total=len(workflow.tasks),
+            tasks_completed=completed_tasks,
+            tasks_failed=failed_tasks,
+            started_at=workflow.started_at,
+            metadata={"project_name": session.project_name}
+        )
+    
+    
+    # WebSocket endpoint
+    @app.websocket("/ws/{session_id}")
+    async def websocket_endpoint(websocket: WebSocket, session_id: str):
+        """WebSocket endpoint for real-time communication."""
+        connection_manager = get_connection_manager()
+        await connection_manager.connect(websocket, session_id)
+        
         try:
+            # Get or create the session
+            session = await session_manager.get_or_create_session(session_id)
+            
+            # Send welcome message
             await connection_manager.send_message(
-                session_id,
-                MessageStructure.format_error(f"Error: {str(e)}")
+                websocket,
+                WebSocketMessage(
+                    type="welcome",
+                    content=f"Connected to session {session_id}",
+                    session_id=session_id
+                )
             )
-        except:
-            pass
-        connection_manager.disconnect(session_id)
+            
+            # Process messages
+            while True:
+                data = await websocket.receive_text()
+                try:
+                    message_data = json.loads(data)
+                    await connection_manager.handle_client_message(websocket, message_data)
+                except json.JSONDecodeError:
+                    logger.error(f"Invalid JSON in WebSocket message: {data}")
+                    await connection_manager.send_message(
+                        websocket,
+                        WebSocketMessage(
+                            type="error",
+                            content="Invalid JSON in message",
+                            session_id=session_id
+                        )
+                    )
+                except Exception as e:
+                    logger.exception(f"Error handling WebSocket message: {str(e)}")
+                    await connection_manager.send_message(
+                        websocket,
+                        WebSocketMessage(
+                            type="error",
+                            content=f"Error processing message: {str(e)}",
+                            session_id=session_id
+                        )
+                    )
+        except WebSocketDisconnect:
+            await connection_manager.disconnect(websocket)
+        except Exception as e:
+            logger.exception(f"WebSocket error: {str(e)}")
+            await connection_manager.disconnect(websocket)
+    
+    
+    # Health check endpoints
+    @app.get("/health")
+    async def health_check():
+        """Health check endpoint."""
+        return {
+            "status": "ok",
+            "timestamp": datetime.utcnow().isoformat(),
+            "active_sessions": session_manager.get_active_sessions_count(),
+            "active_workflows": session_manager.get_active_workflows_count()
+        }
+    
+    
+    @app.get("/api/stats")
+    async def get_stats():
+        """Get system stats."""
+        session_manager = get_session_manager()
+        connection_manager = get_connection_manager()
+        
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "active_sessions": session_manager.get_active_sessions_count(),
+            "active_workflows": session_manager.get_active_workflows_count(),
+            "active_connections": connection_manager.get_connection_count()
+        }
+    
+    return app
+
+
+# For direct execution
+app = create_app()
+
+
+if __name__ == "__main__":
+    # When run directly, start the server
+    import uvicorn
+    
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )

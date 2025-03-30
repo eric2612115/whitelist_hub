@@ -1,9 +1,16 @@
-"""Utility modules for the Whitelist Hub."""
+"""
+Utility functions for Whitelist Hub.
 
-from .ai_client import AIClient
-from .blockchain_client import BlockchainClient
+This package contains utility functions and classes used throughout
+the application.
+"""
+
+from .exceptions import WhitelistHubError, AIModelError, AIModelTimeoutError
+from .observability import Observable, EventEmitter
+from .retryable import retryable, async_retry
 
 __all__ = [
-    "AIClient", 
-    "BlockchainClient"
+    'WhitelistHubError', 'AIModelError', 'AIModelTimeoutError',
+    'Observable', 'EventEmitter',
+    'retryable', 'async_retry'
 ]
